@@ -6,7 +6,7 @@ public class HttpImageServer
     private readonly RequestQueue queue;
     private readonly Logger logger;
 
-    public HtppImageServer(RequestQueue queue,Logger logger)
+    public HttpImageServer(RequestQueue queue,Logger logger)
     {
         this.queue=queue;
         this.logger=logger;

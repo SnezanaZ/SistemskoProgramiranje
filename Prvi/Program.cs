@@ -8,7 +8,7 @@ class Program
         var cache=new ImageCache(100);
         var queue=new RequestQueue();
         var converter=new ImageConverter();
-        var resolver=new FileResolver("root");
+        var resolver=new FileResolver("root/images");
         var logger=new Logger();
 
         var server=new HttpImageServer(queue,logger);
