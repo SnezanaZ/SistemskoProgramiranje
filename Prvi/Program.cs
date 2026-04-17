@@ -5,9 +5,9 @@ class Program
 {
     static void Main()
     {
-        var chache=new ImageChache(100);
+        var cache=new ImageCache(100);
         var queue=new RequestQueue();
-        var convertor=new ImageConvertor();
+        var converter=new ImageConverter();
         var resolver=new FileResolver("root");
         var logger=new Logger();
 
