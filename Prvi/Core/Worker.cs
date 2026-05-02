@@ -10,44 +10,48 @@ public class Worker
     private readonly Logger logger;
     private readonly Func<bool> running;
 
-    public Worker(RequestQueue q, ImageCache c,ImageConverter ic,FileResolver fr,Logger l, Func<bool> running)
+    public Worker(RequestQueue q, ImageCache c, ImageConverter ic, FileResolver fr, Logger l, Func<bool> running)
     {
-        queue=q;
-        cache=c;
-        converter=ic;
-        resolver=fr;
-        logger=l;
-        this.running=running;
+        queue = q;
+        cache = c;
+        converter = ic;
+        resolver = fr;
+        logger = l;
+        this.running = running;
     }
     public void Run()
     {
         while (running())
         {
-            var context=queue.Dequeue();
+            var context = queue.Dequeue(running);
+            if (context == null) break;
             Process(context);
         }
+        logger.Log("Radna nit se gasi.");
     }
     private void Process(HttpListenerContext ctx)
     {
         try
         {
-            string file=ctx.Request.RawUrl.TrimStart('/');
-            string path=resolver.Resolve(file);
+            string file = ctx.Request.RawUrl.TrimStart('/');
+            string path = resolver.Resolve(file);
             if (!File.Exists(path))
             {
-                ctx.Response.StatusCode=404;
+                ctx.Response.StatusCode = 404;
                 ctx.Response.Close();
                 return;
             }
-            var data=cache.GetOrAdd(file,()=>converter.Convert(path));
-            ctx.Response.ContentType="image/png";
-            ctx.Response.OutputStream.Write(data,0,data.Length);
+            var data = cache.GetOrAdd(file, () => converter.Convert(path));
+            ctx.Response.ContentType = "image/png";
+            ctx.Response.OutputStream.Write(data, 0, data.Length);
             ctx.Response.Close();
-            logger.Log($"Processed {file}");
-            
-        }catch(Exception ex)
+            logger.Log($"Obrađen fajl: {file}");
+            cache.PrintCache();
+
+        }
+        catch (Exception ex)
         {
-            logger.Log("ERROR: " + ex.Message);
+            logger.Log("GREŠKA: " + ex.Message);
         }
     }
 

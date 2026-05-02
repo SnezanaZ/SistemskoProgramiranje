@@ -19,19 +19,24 @@ public class ImageCache
 
     public byte[] GetOrAdd(string key, Func<byte[]> factory)
     {
-        lock(lockObj)
+        lock (lockObj)
         {
-            if(cache.ContainsKey(key))
+            if (cache.ContainsKey(key))
             {
+                Console.WriteLine($"[KEŠ POGODAK] {key}");
                 MoveToFront(key);
                 return cache[key];
             }
 
-            if(inProgress.Contains(key))
-            {
-                while(inProgress.Contains(key))
-                    Monitor.Wait(lockObj);
+            Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
 
+            while (inProgress.Contains(key))
+            {
+                Monitor.Wait(lockObj);
+            }
+
+            if (cache.ContainsKey(key))
+            {
                 return cache[key];
             }
 
@@ -40,19 +45,17 @@ public class ImageCache
 
         var data = factory();
 
-        lock(lockObj)
+        lock (lockObj)
         {
-            if(cache.Count >= capacity)
+            if (cache.Count >= capacity && !cache.ContainsKey(key))
             {
                 var last = lru.Last.Value;
-
                 lru.RemoveLast();
                 cache.Remove(last);
                 map.Remove(last);
             }
 
             cache[key] = data;
-
             var node = new LinkedListNode<string>(key);
             lru.AddFirst(node);
             map[key] = node;
@@ -63,12 +66,33 @@ public class ImageCache
 
         return data;
     }
-
     private void MoveToFront(string key)
     {
         var node = map[key];
         lru.Remove(node);
         lru.AddFirst(node);
         map[key] = node;
+    }
+
+    public void PrintCache()
+    {
+        lock (lockObj)
+        {
+            Console.WriteLine($"\n>>> STANJE KEŠA: {lru.Count}/{capacity}");
+
+            if (lru.Count == 0)
+            {
+                Console.WriteLine("Keš je prazan.");
+            }
+            else
+            {
+                foreach (var fajl in lru)
+                {
+                    double mb = cache[fajl].Length / 1024.0 / 1024.0;
+                    Console.WriteLine($" - {fajl} [{mb:F2} MB]");
+                }
+            }
+            Console.WriteLine("--------------------------\n");
+        }
     }
 }

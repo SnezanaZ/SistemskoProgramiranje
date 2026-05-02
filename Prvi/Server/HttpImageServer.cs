@@ -2,14 +2,14 @@ using System.Net;
 
 public class HttpImageServer
 {
-    private readonly HttpListener listener=new ();
+    private readonly HttpListener listener = new();
     private readonly RequestQueue queue;
     private readonly Logger logger;
 
-    public HttpImageServer(RequestQueue queue,Logger logger)
+    public HttpImageServer(RequestQueue queue, Logger logger)
     {
-        this.queue=queue;
-        this.logger=logger;
+        this.queue = queue;
+        this.logger = logger;
         listener.Prefixes.Add("http://localhost:5050/");
     }
     public void Start(Func<bool> running)
@@ -20,7 +20,7 @@ public class HttpImageServer
         {
             try
             {
-                var ctx=listener.GetContext();
+                var ctx = listener.GetContext();
                 queue.Enqueue(ctx);
             }
             catch
@@ -34,6 +34,4 @@ public class HttpImageServer
     {
         listener.Stop();
     }
-
-
 }
