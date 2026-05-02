@@ -1,0 +1,2 @@
+﻿
+await PerformanceTest.Run();
