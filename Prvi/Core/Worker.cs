@@ -19,6 +19,16 @@ public class Worker
         logger = l;
         this.running = running;
     }
+
+    // dodato
+    // public Worker(ImageCache c, ImageConverter ic, FileResolver fr, Logger l)
+    // {
+    //     cache = c;
+    //     converter = ic;
+    //     resolver = fr;
+    //     logger = l;
+    // }
+
     public void Run()
     {
         while (running())
@@ -29,7 +39,8 @@ public class Worker
         }
         logger.Log("Radna nit se gasi.");
     }
-    private void Process(HttpListenerContext ctx)
+    // bilo private
+    public void Process(HttpListenerContext ctx)
     {
         try
         {

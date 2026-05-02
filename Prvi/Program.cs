@@ -10,7 +10,10 @@
         var resolver = new FileResolver("root/images");
         var logger = new Logger();
         var server = new HttpImageServer(queue, logger);
-        
+
+
+        //var server = new HttpImageServer(cache, converter, resolver, logger);
+
         for (int i = 0; i < 4; i++)
         {
             Thread t = new Thread(() =>
