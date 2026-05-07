@@ -5,7 +5,7 @@ public class PerformanceTest
 {
     public static async Task Run()
     {
-        int requests = 10_000;
+        int requests = 50_000;
         int parallel = 100;
 
         string url = "http://localhost:5050/test.jpg";

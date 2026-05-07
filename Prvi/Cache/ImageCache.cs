@@ -17,152 +17,143 @@ public class ImageCache
         this.capacity = capacity;
     }
 
-   public byte[] GetOrAdd(string key, Func<byte[]> factory)
+    //    public byte[] GetOrAdd(string key, Func<byte[]> factory)
+    //     {
+    //         lock (lockObj)
+    //         {
+    //             if (cache.ContainsKey(key))
+    //             {
+    //                 Console.WriteLine($"[KEŠ POGODAK] {key}");
+    //                 MoveToFront(key);
+    //                 return cache[key];
+    //             }
+
+    //             Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
+
+    //             while (inProgress.Contains(key))
+    //             {
+    //                 Monitor.Wait(lockObj);
+    //             }
+
+    //             if (cache.ContainsKey(key))
+    //             {
+    //                 return cache[key];
+    //             }
+
+    //             inProgress.Add(key);
+    //         }
+
+    //         var data = factory();
+
+    //         lock (lockObj)
+    //         {
+    //             if (cache.Count >= capacity && !cache.ContainsKey(key))
+    //             {
+    //                 var last = lru.Last.Value;
+    //                 lru.RemoveLast();
+    //                 cache.Remove(last);
+    //                 map.Remove(last);
+    //             }
+
+    //             cache[key] = data;
+    //             var node = new LinkedListNode<string>(key);
+    //             lru.AddFirst(node);
+    //             map[key] = node;
+
+    //             inProgress.Remove(key);
+    //             Monitor.PulseAll(lockObj);
+    //         }
+
+    //         return data;
+    //     }
+    //     private void MoveToFront(string key)
+    //     {
+    //         var node = map[key];
+    //         lru.Remove(node);
+    //         lru.AddFirst(node);
+    //         map[key] = node;
+    //     }
+    public byte[] GetOrAdd(string key, Func<byte[]> factory)
     {
+
         lock (lockObj)
         {
-            if (cache.ContainsKey(key))
+            if (cache.TryGetValue(key, out var cachedData))
             {
                 Console.WriteLine($"[KEŠ POGODAK] {key}");
                 MoveToFront(key);
-                return cache[key];
+                return cachedData;
             }
 
-            Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
 
             while (inProgress.Contains(key))
             {
+                Console.WriteLine($"[ČEKANJE] Nit čeka na generisanje fajla: {key}");
                 Monitor.Wait(lockObj);
+
+
+                if (cache.TryGetValue(key, out var data))
+                {
+                    MoveToFront(key);
+                    return data;
+                }
             }
 
-            if (cache.ContainsKey(key))
-            {
-                return cache[key];
-            }
 
+            Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
             inProgress.Add(key);
         }
 
-        var data = factory();
+
+        byte[] newData;
+        try
+        {
+            newData = factory();
+        }
+        finally
+        {
+
+            lock (lockObj)
+            {
+                inProgress.Remove(key);
+                Monitor.PulseAll(lockObj);
+            }
+        }
+
 
         lock (lockObj)
         {
-            if (cache.Count >= capacity && !cache.ContainsKey(key))
+
+            if (!cache.ContainsKey(key))
             {
-                var last = lru.Last.Value;
-                lru.RemoveLast();
-                cache.Remove(last);
-                map.Remove(last);
+                if (cache.Count >= capacity)
+                {
+                    var last = lru.Last;
+                    if (last != null)
+                    {
+                        cache.Remove(last.Value);
+                        map.Remove(last.Value);
+                        lru.RemoveLast();
+                    }
+                }
+                cache[key] = newData;
+                map[key] = lru.AddFirst(key);
             }
-
-            cache[key] = data;
-            var node = new LinkedListNode<string>(key);
-            lru.AddFirst(node);
-            map[key] = node;
-
-            inProgress.Remove(key);
-            Monitor.PulseAll(lockObj);
         }
 
-        return data;
+        return newData;
     }
+
     private void MoveToFront(string key)
     {
-        var node = map[key];
-        lru.Remove(node);
-        lru.AddFirst(node);
-        map[key] = node;
-    }
-  /*  public byte[] GetOrAdd(string key, Func<byte[]> factory)
-{
-    
-    lock (lockObj)
-    {
-        if (cache.TryGetValue(key, out var cachedData))
+
+        if (map.TryGetValue(key, out var node))
         {
-            Console.WriteLine($"[KEŠ POGODAK] {key}");
-            MoveToFront(key);
-            return cachedData;
+            lru.Remove(node);
+            lru.AddFirst(node);
         }
-
-       
-        while (inProgress.Contains(key))
-        {
-            Console.WriteLine($"[ČEKANJE] Nit čeka na generisanje fajla: {key}");
-            Monitor.Wait(lockObj);
-
-            
-            if (cache.TryGetValue(key, out var data))
-            {
-                MoveToFront(key);
-                return data;
-            }
-        }
-
-       
-        Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
-        inProgress.Add(key);
     }
 
-
-    byte[] newData;
-    try
-    {
-        newData = factory();
-    }
-    catch
-    {
-       
-        lock (lockObj)
-        {
-            inProgress.Remove(key);
-            Monitor.PulseAll(lockObj);
-        }
-        throw;
-    }
-
-
-    lock (lockObj)
-    {
-        
-        if (!cache.ContainsKey(key) && cache.Count >= capacity)
-        {
-            var lastNode = lru.Last;
-            if (lastNode != null)
-            {
-                string keyToRemove = lastNode.Value;
-                lru.RemoveLast();
-                cache.Remove(keyToRemove);
-                map.Remove(keyToRemove);
-                Console.WriteLine($"[IZBACIVANJE] Objekat {keyToRemove} je izbačen iz keša.");
-            }
-        }
-
-        
-        cache[key] = newData;
-        
-        
-        var newNode = lru.AddFirst(key);
-        map[key] = newNode;
-
-       
-        inProgress.Remove(key);
-        Monitor.PulseAll(lockObj);
-    }
-
-    return newData;
-}
-
-private void MoveToFront(string key)
-{
-    
-    if (map.TryGetValue(key, out var node))
-    {
-        lru.Remove(node);
-        lru.AddFirst(node);
-    }
-}
-*/
     public void PrintCache()
     {
         lock (lockObj)
