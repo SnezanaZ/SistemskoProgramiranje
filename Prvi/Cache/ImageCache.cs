@@ -17,7 +17,7 @@ public class ImageCache
         this.capacity = capacity;
     }
 
-    public byte[] GetOrAdd(string key, Func<byte[]> factory)
+   public byte[] GetOrAdd(string key, Func<byte[]> factory)
     {
         lock (lockObj)
         {
@@ -73,7 +73,96 @@ public class ImageCache
         lru.AddFirst(node);
         map[key] = node;
     }
+  /*  public byte[] GetOrAdd(string key, Func<byte[]> factory)
+{
+    
+    lock (lockObj)
+    {
+        if (cache.TryGetValue(key, out var cachedData))
+        {
+            Console.WriteLine($"[KEŠ POGODAK] {key}");
+            MoveToFront(key);
+            return cachedData;
+        }
 
+       
+        while (inProgress.Contains(key))
+        {
+            Console.WriteLine($"[ČEKANJE] Nit čeka na generisanje fajla: {key}");
+            Monitor.Wait(lockObj);
+
+            
+            if (cache.TryGetValue(key, out var data))
+            {
+                MoveToFront(key);
+                return data;
+            }
+        }
+
+       
+        Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
+        inProgress.Add(key);
+    }
+
+
+    byte[] newData;
+    try
+    {
+        newData = factory();
+    }
+    catch
+    {
+       
+        lock (lockObj)
+        {
+            inProgress.Remove(key);
+            Monitor.PulseAll(lockObj);
+        }
+        throw;
+    }
+
+
+    lock (lockObj)
+    {
+        
+        if (!cache.ContainsKey(key) && cache.Count >= capacity)
+        {
+            var lastNode = lru.Last;
+            if (lastNode != null)
+            {
+                string keyToRemove = lastNode.Value;
+                lru.RemoveLast();
+                cache.Remove(keyToRemove);
+                map.Remove(keyToRemove);
+                Console.WriteLine($"[IZBACIVANJE] Objekat {keyToRemove} je izbačen iz keša.");
+            }
+        }
+
+        
+        cache[key] = newData;
+        
+        
+        var newNode = lru.AddFirst(key);
+        map[key] = newNode;
+
+       
+        inProgress.Remove(key);
+        Monitor.PulseAll(lockObj);
+    }
+
+    return newData;
+}
+
+private void MoveToFront(string key)
+{
+    
+    if (map.TryGetValue(key, out var node))
+    {
+        lru.Remove(node);
+        lru.AddFirst(node);
+    }
+}
+*/
     public void PrintCache()
     {
         lock (lockObj)
