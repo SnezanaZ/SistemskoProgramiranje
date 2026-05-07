@@ -43,8 +43,9 @@ public class HttpImageServer
             {
                 break;
             }
-            logger.Log("Server je prestao da prima zahteve.");
+           
         }
+         logger.Log("Server je prestao da prima zahteve.");
     }
     public void Stop()
     {
