@@ -20,14 +20,14 @@ public class Worker
         this.running = running;
     }
 
-    // dodato
-    // public Worker(ImageCache c, ImageConverter ic, FileResolver fr, Logger l)
-    // {
-    //     cache = c;
-    //     converter = ic;
-    //     resolver = fr;
-    //     logger = l;
-    // }
+  
+    public Worker(ImageCache c, ImageConverter ic, FileResolver fr, Logger l)
+    {
+        cache = c;
+        converter = ic;
+        resolver = fr;
+        logger = l;
+    }
 
     public void Run()
     {
@@ -39,7 +39,6 @@ public class Worker
         }
         logger.Log("Radna nit se gasi.");
     }
-    // bilo private
     public void Process(HttpListenerContext ctx)
     {
         try
@@ -56,8 +55,8 @@ public class Worker
             ctx.Response.ContentType = "image/png";
             ctx.Response.OutputStream.Write(data, 0, data.Length);
             ctx.Response.Close();
-            logger.Log($"Obrađen fajl: {file}");
-            cache.PrintCache();
+           // logger.Log($"Obrađen fajl: {file}");
+          //  cache.PrintCache();
 
         }
         catch (Exception ex)
