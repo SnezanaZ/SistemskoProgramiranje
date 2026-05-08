@@ -3,19 +3,11 @@ using System.Net;
 public class HttpImageServer
 {
     private readonly HttpListener listener = new();
-    private readonly RequestQueue queue;
     private readonly Logger logger;
 
     private readonly ImageCache cache;
     private readonly ImageConverter converter;
     private readonly FileResolver resolver;
-
-    public HttpImageServer(RequestQueue queue, Logger logger)
-    {
-        this.queue = queue;
-        this.logger = logger;
-        listener.Prefixes.Add("http://localhost:5050/");
-    }
 
     public HttpImageServer(ImageCache c, ImageConverter ic, FileResolver fr, Logger l)
     {
@@ -31,7 +23,6 @@ public class HttpImageServer
             try
             {
                  var ctx = listener.GetContext();
-                // queue.Enqueue(ctx);
                ThreadPool.QueueUserWorkItem(_ => {
                     var worker = new Worker(cache, converter, resolver, logger);
                     worker.Process(ctx);
