@@ -16,63 +16,6 @@ public class ImageCache
     {
         this.capacity = capacity;
     }
-
-    //    public byte[] GetOrAdd(string key, Func<byte[]> factory)
-    //     {
-    //         lock (lockObj)
-    //         {
-    //             if (cache.ContainsKey(key))
-    //             {
-    //                 Console.WriteLine($"[KEŠ POGODAK] {key}");
-    //                 MoveToFront(key);
-    //                 return cache[key];
-    //             }
-
-    //             Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
-
-    //             while (inProgress.Contains(key))
-    //             {
-    //                 Monitor.Wait(lockObj);
-    //             }
-
-    //             if (cache.ContainsKey(key))
-    //             {
-    //                 return cache[key];
-    //             }
-
-    //             inProgress.Add(key);
-    //         }
-
-    //         var data = factory();
-
-    //         lock (lockObj)
-    //         {
-    //             if (cache.Count >= capacity && !cache.ContainsKey(key))
-    //             {
-    //                 var last = lru.Last.Value;
-    //                 lru.RemoveLast();
-    //                 cache.Remove(last);
-    //                 map.Remove(last);
-    //             }
-
-    //             cache[key] = data;
-    //             var node = new LinkedListNode<string>(key);
-    //             lru.AddFirst(node);
-    //             map[key] = node;
-
-    //             inProgress.Remove(key);
-    //             Monitor.PulseAll(lockObj);
-    //         }
-
-    //         return data;
-    //     }
-    //     private void MoveToFront(string key)
-    //     {
-    //         var node = map[key];
-    //         lru.Remove(node);
-    //         lru.AddFirst(node);
-    //         map[key] = node;
-    //     }
     public byte[] GetOrAdd(string key, Func<byte[]> factory)
     {
 
