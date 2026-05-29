@@ -5,9 +5,10 @@ public class PerformanceTest
 {
     public static async Task Run()
     {
-        int requests = 50_000;
+        int requests = 10_000;
         int parallel = 100;
 
+    
         string url = "http://localhost:5050/test.jpg";
         HttpClient client = new HttpClient();
 
@@ -19,6 +20,7 @@ public class PerformanceTest
         for (int i = 0; i < requests; i++)
         {
             await sem.WaitAsync();
+           
 
             tasks.Add(Task.Run(async () =>
             {

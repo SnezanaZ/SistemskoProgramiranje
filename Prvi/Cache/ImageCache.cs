@@ -1,10 +1,15 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 
 public class ImageCache
 {
     private readonly int capacity;
-
+// Prag nakon kojeg pozadinska nit kreće u čišćenje (npr. kada pređe 4 elementa)
+    private readonly int cleanThreshold;
+    // Token za bezbedno gašenje pozadinske niti kada se server gasi
+  
+    private readonly CancellationTokenSource cts = new();
     private Dictionary<string, LinkedListNode<string>> map = new();
     private Dictionary<string, byte[]> cache = new();
     private LinkedList<string> lru = new();
@@ -12,9 +17,17 @@ public class ImageCache
     private HashSet<string> inProgress = new();
     private object lockObj = new();
 
-    public ImageCache(int capacity)
+    public ImageCache(int capacity,int cleanThreshold=4)
     {
         this.capacity = capacity;
+        this.cleanThreshold=cleanThreshold;
+
+        // POKRETANJE POZADINSKOG ČISTAČA KROZ TASK
+        // TaskCreationOptions.LongRunning govori sistemu da ova nit živi dugo i da ne opterećuje ThreadPool
+        Task.Factory.StartNew(async () => await PeriodicCleanupAsync(cts.Token), 
+            cts.Token, 
+            TaskCreationOptions.LongRunning, 
+            TaskScheduler.Default);
     }
     public byte[] GetOrAdd(string key, Func<byte[]> factory)
     {
@@ -23,7 +36,7 @@ public class ImageCache
         {
             if (cache.TryGetValue(key, out var cachedData))
             {
-             //   Console.WriteLine($"[KEŠ POGODAK] {key}");
+              Console.WriteLine($"[KEŠ POGODAK] {key}");
                 MoveToFront(key);
                 return cachedData;
             }
@@ -31,7 +44,7 @@ public class ImageCache
 
             while (inProgress.Contains(key))
             {
-             //   Console.WriteLine($"[ČEKANJE] Nit čeka na generisanje fajla: {key}");
+               Console.WriteLine($"[ČEKANJE] Nit čeka na generisanje fajla: {key}");
                 Monitor.Wait(lockObj);
 
 
@@ -43,7 +56,7 @@ public class ImageCache
             }
 
 
-        //    Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
+            Console.WriteLine($"[KEŠ PROMAŠAJ] {key}");
             inProgress.Add(key);
         }
 
@@ -69,7 +82,7 @@ public class ImageCache
 
             if (!cache.ContainsKey(key))
             {
-                if (cache.Count >= capacity)
+               /* if (cache.Count >= capacity)
                 {
                     var last = lru.Last;
                     if (last != null)
@@ -78,6 +91,11 @@ public class ImageCache
                         map.Remove(last.Value);
                         lru.RemoveLast();
                     }
+                }*/
+                // Reaktivno čišćenje ako se dosegne apsolutni maksimum kapaciteta
+                if (cache.Count >= capacity)
+                {
+                    EvictOldestWithoutLock();
                 }
                 cache[key] = newData;
                 map[key] = lru.AddFirst(key);
@@ -117,5 +135,62 @@ public class ImageCache
             }
             Console.WriteLine("--------------------------\n");
         }
+    }
+    //DODATO
+    private async Task PeriodicCleanupAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                // Nit spava npr. 10 sekundi pre sledeće provere (provera se prekida odmah ako se server gasi)
+                await Task.Delay(TimeSpan.FromSeconds(10), token);
+
+                lock (lockObj)
+                {
+                    // Ako niko ne zove keš, a nakupilo se više elemenata od praga (cleanThreshold)
+                    if (lru.Count > cleanThreshold)
+                    {
+                        Console.WriteLine($"\n[POZADINSKI ČISTAČ] Detektovano {lru.Count} elemenata (Prag je {cleanThreshold}). Čišćenje u toku...");
+                        
+                        // Čistimo dok ne spustimo broj elemenata na bezbednu polovinu kapaciteta praga
+                        int targetCount = cleanThreshold / 2; 
+                        while (lru.Count > targetCount)
+                        {
+                            EvictOldestWithoutLock();
+                        }
+                        
+                        Console.WriteLine($"[POZADINSKI ČISTAČ] Keš očišćen. Trenutno stanje: {lru.Count} elemenata.");
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normalno ponašanje prilikom gašenja aplikacije preko CancellationToken-a
+                break;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[GREŠKA ČISTAČA] {ex.Message}");
+            }
+        }
+    }
+
+    // Pomoćna metoda za izbacivanje najstarijeg elementa (mora se zvati unutar lock-a)
+    private void EvictOldestWithoutLock()
+    {
+        var last = lru.Last;
+        if (last != null)
+        {
+            Console.WriteLine($"[IZBACIVANJE] POZADINSKI/REAKTIVNI ČISTAČ uklanja: {last.Value}");
+            cache.Remove(last.Value);
+            map.Remove(last.Value);
+            lru.RemoveLast();
+        }
+    }
+    // Metoda za bezbedno stopiranje pozadinske niti prilikom gašenja servera
+    public void Shutdown()
+    {
+        cts.Cancel();
     }
 }
