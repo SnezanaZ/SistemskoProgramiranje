@@ -32,7 +32,7 @@ public class Worker
             ctx.Response.OutputStream.Write(data, 0, data.Length);
             ctx.Response.Close();
            // logger.Log($"Obrađen fajl: {file}");
-          //  cache.PrintCache();
+           cache.PrintCache();
 
         }
         catch (Exception ex)
