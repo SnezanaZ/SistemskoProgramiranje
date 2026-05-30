@@ -1,29 +1,25 @@
-using System.Collections.Concurrent;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+
 public class ImageCache
 {
     private readonly int capacity;
     private readonly int cleanThreshold;
-
     private readonly CancellationTokenSource cts = new();
 
-    // Gotovi podaci
+    
     private readonly ConcurrentDictionary<string, byte[]> cache = new();
 
-    // LRU strukture
-    private readonly LinkedList<string> lru = new();
+       private readonly LinkedList<string> lru = new();
     private readonly Dictionary<string, LinkedListNode<string>> nodes = new();
 
-    // lock za LRU
+   
     private readonly object lruLock = new();
 
-    // lock po fajlu
-    private readonly ConcurrentDictionary<string, object> fileLocks = new();
-
-    // cache stampede
+    
     private readonly ConcurrentDictionary<string, Task<byte[]>> inProgress = new();
 
     public ImageCache(int capacity, int cleanThreshold = 4)
@@ -31,80 +27,80 @@ public class ImageCache
         this.capacity = capacity;
         this.cleanThreshold = cleanThreshold;
 
+       
         _ = CleanupLoopAsync(cts.Token);
     }
 
-    public async Task<byte[]> GetOrAddAsync(
-     string key,
-     Func<byte[]> factory)
+    public async Task<byte[]> GetOrAddAsync(string key, Func<byte[]> factory)
     {
+      
         if (cache.TryGetValue(key, out var cached))
         {
             MoveToFront(key);
-
-            Console.WriteLine($"[CACHE HIT] {key}");
-
+            Console.WriteLine($"[KEŠ POGODAK] {key}");
             return cached;
         }
 
-        object fileLock =
-            fileLocks.GetOrAdd(key, _ => new object());
-
-        Task<byte[]> task;
-        bool createdTask = false;
-
-        lock (fileLock)
-        {
-            if (cache.TryGetValue(key, out cached))
-            {
-                MoveToFront(key);
-                return cached;
-            }
-
-            if (!inProgress.TryGetValue(key, out task))
-            {
-                task = Task.Run(factory);
-
-                inProgress[key] = task;
-
-                createdTask = true;
-            }
-        }
+      
+        // Ako task za ovaj ključ ne postoji, kreira se novi preko Task.Run(factory).
+        // Ako već postoji, sve ostale niti će dobiti referencu na isti taj aktivan task.
+        Task<byte[]> conversionTask = inProgress.GetOrAdd(key, _ => Task.Run(factory));
 
         try
         {
-            byte[] data = await task;
+            // Čekamo asinhrono da se konverzija završi (bez blokiranja niti)
+            byte[] data = await conversionTask;
 
-            lock (fileLock)
+            
+            lock (lruLock)
             {
                 if (!cache.ContainsKey(key))
                 {
                     cache[key] = data;
+                    AddToFrontWithoutLock(key);
 
-                    lock (lruLock)
+                    // Ako smo prešli kapacitet, izbaci najstariji element
+                    while (cache.Count > capacity)
                     {
-                        AddToFront(key);
-
-                        while (cache.Count > capacity)
-                        {
-                            RemoveOldest();
-                        }
+                        RemoveOldestWithoutLock();
                     }
                 }
             }
 
             return data;
         }
+        catch (Exception)
+        {
+           
+            inProgress.TryRemove(key, out _);
+            throw;
+        }
         finally
         {
-            if (createdTask)
+           
+            // sklanjamo task iz inProgress da ne bismo trošili memoriju
+            if (cache.ContainsKey(key))
             {
                 inProgress.TryRemove(key, out _);
             }
         }
     }
 
-    private void AddToFront(string key)
+    private void MoveToFront(string key)
+    {
+        lock (lruLock)
+        {
+            if (nodes.TryGetValue(key, out var node))
+            {
+               
+                // već samo premeštamo postojeći čvor  na početak liste.
+                lru.Remove(node);
+                lru.AddFirst(node);
+            }
+        }
+    }
+
+    private void AddToFrontWithoutLock(string key)
     {
         if (nodes.TryGetValue(key, out var existing))
         {
@@ -112,61 +108,40 @@ public class ImageCache
         }
 
         var node = lru.AddFirst(key);
-
         nodes[key] = node;
     }
 
-    private void MoveToFront(string key)
-    {
-        lock (lruLock)
-        {
-            if (!nodes.TryGetValue(key, out var node))
-                return;
-
-            lru.Remove(node);
-
-            nodes[key] = lru.AddFirst(key);
-        }
-    }
-    private void RemoveOldest()
+    private void RemoveOldestWithoutLock()
     {
         var last = lru.Last;
-
-        if (last == null)
-            return;
+        if (last == null) return;
 
         string key = last.Value;
-
-        Console.WriteLine($"[EVICT] {key}");
+        Console.WriteLine($"[IZBACIVANJE] Uklanjanje najstarijeg iz keša: {key}");
 
         cache.TryRemove(key, out _);
-
         nodes.Remove(key);
-
         lru.RemoveLast();
     }
 
-    private async Task CleanupLoopAsync(
-        CancellationToken token)
+    private async Task CleanupLoopAsync(CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(
-                    TimeSpan.FromSeconds(10),
-                    token);
+                // Asinhrono čekanje 10 sekundi pre sledećeg čišćenja
+                await Task.Delay(TimeSpan.FromSeconds(10), token);
 
                 lock (lruLock)
                 {
                     if (lru.Count > cleanThreshold)
                     {
-                        int target =
-                            Math.Max(cleanThreshold / 2, 1);
+                        int target = Math.Max(cleanThreshold / 2, 1);
 
                         while (lru.Count > target)
                         {
-                            RemoveOldest();
+                            RemoveOldestWithoutLock();
                         }
                     }
                 }
@@ -177,8 +152,7 @@ public class ImageCache
             }
             catch (Exception ex)
             {
-                Console.WriteLine(
-                    $"[CLEANUP ERROR] {ex.Message}");
+                Console.WriteLine($"[GREŠKA ČISTAČA] {ex.Message}");
             }
         }
     }
@@ -187,21 +161,13 @@ public class ImageCache
     {
         lock (lruLock)
         {
-            Console.WriteLine();
-            Console.WriteLine(
-                $"CACHE {cache.Count}/{capacity}");
-
+            Console.WriteLine($"\n>>> STANJE KEŠA: {cache.Count}/{capacity}");
             foreach (var key in lru)
             {
                 if (cache.TryGetValue(key, out var data))
                 {
-                    double mb =
-                        data.Length /
-                        1024.0 /
-                        1024.0;
-
-                    Console.WriteLine(
-                        $" - {key} [{mb:F2} MB]");
+                    double mb = data.Length / 1024.0 / 1024.0;
+                    Console.WriteLine($" - {key} [{mb:F2} MB]");
                 }
             }
         }
