@@ -10,16 +10,16 @@ public class ImageCache
     private readonly int cleanThreshold;
     private readonly CancellationTokenSource cts = new();
 
-    
+
     private readonly ConcurrentDictionary<string, byte[]> cache = new();
 
-       private readonly LinkedList<string> lru = new();
+    private readonly LinkedList<string> lru = new();
     private readonly Dictionary<string, LinkedListNode<string>> nodes = new();
 
-   
+
     private readonly object lruLock = new();
 
-    
+
     private readonly ConcurrentDictionary<string, Task<byte[]>> inProgress = new();
 
     public ImageCache(int capacity, int cleanThreshold = 4)
@@ -27,13 +27,13 @@ public class ImageCache
         this.capacity = capacity;
         this.cleanThreshold = cleanThreshold;
 
-       
+
         _ = CleanupLoopAsync(cts.Token);
     }
 
     public async Task<byte[]> GetOrAddAsync(string key, Func<byte[]> factory)
     {
-      
+
         if (cache.TryGetValue(key, out var cached))
         {
             MoveToFront(key);
@@ -41,7 +41,7 @@ public class ImageCache
             return cached;
         }
 
-      
+
         // Ako task za ovaj ključ ne postoji, kreira se novi preko Task.Run(factory).
         // Ako već postoji, sve ostale niti će dobiti referencu na isti taj aktivan task.
         Task<byte[]> conversionTask = inProgress.GetOrAdd(key, _ => Task.Run(factory));
@@ -51,7 +51,7 @@ public class ImageCache
             // Čekamo asinhrono da se konverzija završi (bez blokiranja niti)
             byte[] data = await conversionTask;
 
-            
+
             lock (lruLock)
             {
                 if (!cache.ContainsKey(key))
@@ -71,18 +71,13 @@ public class ImageCache
         }
         catch (Exception)
         {
-           
+
             inProgress.TryRemove(key, out _);
             throw;
         }
         finally
         {
-           
-            // sklanjamo task iz inProgress da ne bismo trošili memoriju
-            if (cache.ContainsKey(key))
-            {
-                inProgress.TryRemove(key, out _);
-            }
+            inProgress.TryRemove(key, out _);
         }
     }
 
@@ -92,7 +87,7 @@ public class ImageCache
         {
             if (nodes.TryGetValue(key, out var node))
             {
-               
+
                 // već samo premeštamo postojeći čvor  na početak liste.
                 lru.Remove(node);
                 lru.AddFirst(node);
