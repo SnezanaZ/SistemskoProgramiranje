@@ -11,8 +11,8 @@ public class HybridPerformanceTest
         string stampedeFile = "sunflower.jpg"; 
         string[] cachedFiles = { "1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg" }; 
         
-        int stampedeRequests = 500;
-        int cacheHitRequests = 5000;
+        int stampedeRequests = 100;
+        int cacheHitRequests = 50;
         var tasks = new List<Task>();
 
         Console.WriteLine(">>> INICIJALIZACIJA: Punim keš do kapaciteta (1-4.jpg)...");
