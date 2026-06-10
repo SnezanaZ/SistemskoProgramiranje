@@ -10,7 +10,7 @@ public class ImageCache
     private readonly int cleanThreshold;
     private readonly CancellationTokenSource cts = new();
 
-
+    private readonly Task cleanupTask;
     private readonly ConcurrentDictionary<string, byte[]> cache = new();
 
     private readonly LinkedList<string> lru = new();
@@ -28,10 +28,10 @@ public class ImageCache
         this.cleanThreshold = cleanThreshold;
 
 
-        _ = CleanupLoopAsync(cts.Token);
+        cleanupTask = CleanupLoopAsync(cts.Token);
     }
 
-    public async Task<byte[]> GetOrAddAsync(string key, Func<byte[]> factory)
+    public async Task<byte[]> GetOrAddAsync(string key, Func<Task<byte[]>> factory)
     {
 
         if (cache.TryGetValue(key, out var cached))
@@ -42,24 +42,19 @@ public class ImageCache
         }
 
 
-        // Ako task za ovaj ključ ne postoji, kreira se novi preko Task.Run(factory).
-        // Ako već postoji, sve ostale niti će dobiti referencu na isti taj aktivan task.
-        Task<byte[]> conversionTask = inProgress.GetOrAdd(key, _ => Task.Run(factory));
+
+        Task<byte[]> conversionTask = inProgress.GetOrAdd(key, _ => factory());
 
         try
         {
-            // Čekamo asinhrono da se konverzija završi (bez blokiranja niti)
             byte[] data = await conversionTask;
 
 
             lock (lruLock)
             {
-                if (!cache.ContainsKey(key))
+                if (cache.TryAdd(key, data))
                 {
-                    cache[key] = data;
                     AddToFrontWithoutLock(key);
-
-                    // Ako smo prešli kapacitet, izbaci najstariji element
                     while (cache.Count > capacity)
                     {
                         RemoveOldestWithoutLock();
@@ -68,12 +63,6 @@ public class ImageCache
             }
 
             return data;
-        }
-        catch (Exception)
-        {
-
-            inProgress.TryRemove(key, out _);
-            throw;
         }
         finally
         {
@@ -88,7 +77,6 @@ public class ImageCache
             if (nodes.TryGetValue(key, out var node))
             {
 
-                // već samo premeštamo postojeći čvor  na početak liste.
                 lru.Remove(node);
                 lru.AddFirst(node);
             }
@@ -125,7 +113,6 @@ public class ImageCache
         {
             try
             {
-                // Asinhrono čekanje 10 sekundi pre sledećeg čišćenja
                 await Task.Delay(TimeSpan.FromSeconds(10), token);
 
                 lock (lruLock)
@@ -168,8 +155,9 @@ public class ImageCache
         }
     }
 
-    public void Shutdown()
+    public async Task ShutdownAsync()
     {
         cts.Cancel();
+        await cleanupTask;
     }
 }

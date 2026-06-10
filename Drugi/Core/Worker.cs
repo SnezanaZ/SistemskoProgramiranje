@@ -44,11 +44,11 @@ public class Worker
 
                 return;
             }
-
+            // ????
             var imageTask =
-                cache.GetOrAddAsync(
-                    file,
-                    () => converter.Convert(path));
+    cache.GetOrAddAsync(
+        file,
+        () => converter.ConvertAsync(path));
 
             _ = imageTask.ContinueWith(t =>
         {

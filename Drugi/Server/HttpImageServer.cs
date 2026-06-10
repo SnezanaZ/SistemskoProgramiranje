@@ -9,7 +9,6 @@ public class HttpImageServer
     private readonly ImageConverter converter;
     private readonly FileResolver resolver;
 
-    // kontrola paralelizma
     private readonly SemaphoreSlim semaphore;
 
     public HttpImageServer(
@@ -89,9 +88,10 @@ public class HttpImageServer
       }
   });
 
-            logger.Log(
-                "Server prestao da prima zahteve.");
+    
         }
+            logger.Log(
+                "Server prestao da prima zahteve.");    
     }
 
     public void Stop()

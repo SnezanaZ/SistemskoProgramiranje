@@ -25,24 +25,20 @@
 
         Thread inputThread = new Thread(() =>
         {
-            Console.WriteLine(
-                "Server pokrenut.");
-            Console.WriteLine(
-                "Pritisnite Q za gašenje.");
+            Console.WriteLine("Server pokrenut.");
+            Console.WriteLine("Pritisnite Q za gašenje.");
 
             while (running)
             {
                 if (Console.KeyAvailable)
                 {
-                    var key =
-                        Console.ReadKey(true);
+                    var key = Console.ReadKey(true);
 
                     if (key.Key == ConsoleKey.Q)
                     {
                         running = false;
 
                         server.Stop();
-                        cache.Shutdown();
 
                         break;
                     }
@@ -57,13 +53,16 @@
 
         try
         {
-            await server.StartAsync(
-                () => running);
+            await server.StartAsync(() => running);
         }
         catch (Exception ex)
         {
             logger.Log(
                 $"Greška servera: {ex.Message}");
+        }
+        finally
+        {
+            await cache.ShutdownAsync();
         }
 
         Console.WriteLine(

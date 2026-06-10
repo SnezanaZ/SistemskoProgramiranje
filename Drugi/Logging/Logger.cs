@@ -6,7 +6,7 @@ public class Logger
     {
         lock(lockObj)
         {
-            File.AppendAllText("log.txt",$"${DateTime.Now}: {poruka}\n");
+            File.AppendAllText("log.txt",$"{DateTime.Now}: {poruka}\n");
         }
     }
 }
