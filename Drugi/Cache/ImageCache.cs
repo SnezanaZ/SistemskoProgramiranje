@@ -66,7 +66,13 @@ public class ImageCache
         }
         finally
         {
-            inProgress.TryRemove(key, out _);
+           // inProgress.TryRemove(key, out _);
+            if (ReferenceEquals(
+        conversionTask,
+        inProgress.GetValueOrDefault(key)))
+    {
+        inProgress.TryRemove(key, out _);
+    }
         }
     }
 

@@ -5,7 +5,7 @@
     static void Main()
     {
         //var cache = new ImageCache(4);
-        var cache = new ImageCache(capacity: 50, cleanThreshold: 4);
+        var cache = new ImageCache(capacity: 50, cleanThreshold: 40);
         var converter = new ImageConverter();
         var resolver = new FileResolver("root/images");
         var logger = new Logger();
