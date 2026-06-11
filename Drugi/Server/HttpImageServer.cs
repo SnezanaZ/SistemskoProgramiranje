@@ -34,66 +34,51 @@ public class HttpImageServer
     public async Task StartAsync(
         Func<bool> running)
     {
-        listener.Start();
+       listener.Start();
+    logger.Log("Server pokrenut.");
 
-        logger.Log("Server pokrenut.");
-
-        while (running())
+    while (running())
+    {
+        try
         {
-            HttpListenerContext ctx;
+            
+            HttpListenerContext ctx = await listener.GetContextAsync();
 
-            try
-            {
-                ctx = await listener.GetContextAsync();
-            }
-            catch
-            {
-                break;
-            }
-
-            await semaphore.WaitAsync();
-
-            var processingTask =
-                Task.Run(async () =>
-                {
-                    try
-                    {
-                        Worker worker =
-                            new Worker(
-                                cache,
-                                converter,
-                                resolver,
-                                logger);
-
-                        await worker.ProcessAsync(ctx);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                });
-
-            _ = processingTask.ContinueWith(t =>
-  {
-      if (t.IsFaulted)
-      {
-          logger.Log(
-              "Greška u obradi zahteva: "
-              + t.Exception?.GetBaseException().Message);
-      }
-      else
-      {
-          logger.Log(
-              "Zahtev uspešno obrađen.");
-      }
-  });
-
-    
+            _ = ProcessRequestWithThrottleAsync(ctx);
         }
-            logger.Log(
-                "Server prestao da prima zahteve.");    
+        catch (Exception ex)
+        {
+            
+            if (running())
+                logger.Log($"Greška pri prihvatanju konekcije: {ex.Message}");
+            break;
+        }
     }
 
+    logger.Log("Server prestao da prima zahteve.");
+    }
+private async Task ProcessRequestWithThrottleAsync(HttpListenerContext ctx)
+{
+    try
+    {
+        
+        await semaphore.WaitAsync();
+
+        Worker worker = new Worker(cache, converter, resolver, logger);
+        await worker.ProcessAsync(ctx);
+
+        logger.Log("Zahtev uspešno obrađen.");
+    }
+    catch (Exception ex)
+    {
+        logger.Log("Greška u obradi zahteva: " + ex.GetBaseException().Message);
+    }
+    finally
+    {
+       
+        semaphore.Release();
+    }
+}
     public void Stop()
     {
         try
