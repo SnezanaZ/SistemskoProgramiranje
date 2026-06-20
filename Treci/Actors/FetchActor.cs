@@ -32,7 +32,7 @@ namespace Treci
 
                         .Where(r =>
                             r.Rating > 4.0 &&
-                            r.ReviewCount > 20 &&
+                            r.ReviewCount > 500 &&
                             !r.IsClosed)
 
                         .ObserveOn(

@@ -36,10 +36,11 @@ namespace Treci
                 .FromAsync(async () =>
                 {
                     var url =
-                        $"https://api.yelp.com/v3/businesses/search?location={Uri.EscapeDataString(location)}";
+    $"https://api.yelp.com/v3/businesses/search?term=restaurants&location={Uri.EscapeDataString(location)}";
 
                     var json =
                         await _client.GetStringAsync(url);
+Console.WriteLine(json);
 
                     var root =
                         JObject.Parse(json);
