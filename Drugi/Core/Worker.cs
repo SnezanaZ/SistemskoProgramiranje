@@ -44,7 +44,6 @@ public class Worker
 
                 return;
             }
-            // ????
             var imageTask =
     cache.GetOrAddAsync(
         file,
