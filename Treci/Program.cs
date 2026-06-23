@@ -10,16 +10,14 @@ namespace Treci
 {
     class Program
     {
-        private static ActorSystem system;
-        private static IActorRef manager;
+        private static ActorSystem _system;
+        private static IActorRef _manager;
 
         static async Task Main(string[] args)
         {
-            system = ActorSystem.Create(
-                "YelpSystem",
-                SystemConfig.GetAkkaConfig());
+            _system = ActorSystem.Create("YelpSystem", SystemConfig.GetAkkaConfig());
 
-            manager = system.ActorOf(
+            _manager = _system.ActorOf(
                 Props.Create(() => new ManagerActor())
                      .WithDispatcher("yelp-dispatcher"),
                 "manager");
@@ -28,22 +26,23 @@ namespace Treci
             listener.Prefixes.Add("http://localhost:8080/restaurants/");
             listener.Start();
 
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ========================================");
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SERVER STARTED");
-            Console.WriteLine("Open: http://localhost:8080/restaurants/?location=Belgrade");
-            Console.WriteLine("Press Ctrl+C or type 'exit' to stop the server.");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Listening on: http://localhost:8080/restaurants/");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Example: http://localhost:8080/restaurants/?location=Belgrade");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Type 'exit' or press Ctrl+C to stop.");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ========================================");
 
             var cts = new CancellationTokenSource();
 
-            // Ctrl+C signal
             Console.CancelKeyPress += (s, e) =>
             {
                 e.Cancel = true;
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SHUTDOWN SIGNAL RECEIVED (Ctrl+C)");
                 cts.Cancel();
-                listener.Stop(); // prekida blokirajući GetContextAsync
+                listener.Stop();
             };
 
-            // Exit komanda u konzoli
             Task.Run(() =>
             {
                 while (!cts.Token.IsCancellationRequested)
@@ -69,59 +68,85 @@ namespace Treci
             }
             catch (HttpListenerException) when (cts.Token.IsCancellationRequested)
             {
-                // očekivani prekid
+                
             }
             finally
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SERVER STOPPING...");
-
                 listener.Close();
-                await system.Terminate();
-
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SERVER STOPPED");
+                await _system.Terminate();
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SERVER STOPPED. Goodbye.");
             }
         }
 
         private static async Task HandleRequest(HttpListenerContext ctx)
         {
             var location = ctx.Request.QueryString["location"];
+            var requestId = Guid.NewGuid().ToString("N")[..8];
 
             Console.WriteLine(
-                $"[{DateTime.Now:HH:mm:ss}] REQUEST | Thread: {Thread.CurrentThread.ManagedThreadId} | Location: {location}");
+                $"[{DateTime.Now:HH:mm:ss}] ── REQUEST [{requestId}] ──────────────────────");
+            Console.WriteLine(
+                $"[{DateTime.Now:HH:mm:ss}] Method: {ctx.Request.HttpMethod} | " +
+                $"URL: {ctx.Request.Url} | Thread: {Thread.CurrentThread.ManagedThreadId}");
+            Console.WriteLine(
+                $"[{DateTime.Now:HH:mm:ss}] Location param: '{location}'");
 
             if (string.IsNullOrWhiteSpace(location))
             {
+                Console.WriteLine(
+                    $"[{DateTime.Now:HH:mm:ss}] BAD REQUEST [{requestId}] — missing 'location' parameter");
+
                 ctx.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                var bytes = Encoding.UTF8.GetBytes("Query parameter 'location' is required.");
-                await ctx.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
+                var errBytes = Encoding.UTF8.GetBytes(
+                    JsonConvert.SerializeObject(new { error = "Query parameter 'location' is required." }));
+                ctx.Response.ContentType = "application/json";
+                await ctx.Response.OutputStream.WriteAsync(errBytes, 0, errBytes.Length);
                 ctx.Response.Close();
                 return;
             }
 
+            var startTime = DateTime.Now;
+
             try
             {
-                var result = await manager.Ask<SortedData>(
+                var result = await _manager.Ask<SortedData>(
                     new FetchRequest(location),
                     TimeSpan.FromSeconds(20));
 
-                var json = JsonConvert.SerializeObject(result.Restaurants, Formatting.Indented);
+                var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
+
+                var json = JsonConvert.SerializeObject(new
+                {
+                    location = location,
+                    count = result.Restaurants.Count,
+                    restaurants = result.Restaurants
+                }, Formatting.Indented);
+
                 var bytes = Encoding.UTF8.GetBytes(json);
 
                 ctx.Response.StatusCode = (int)HttpStatusCode.OK;
-                ctx.Response.ContentType = "application/json";
-
+                ctx.Response.ContentType = "application/json; charset=utf-8";
                 await ctx.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
 
                 Console.WriteLine(
-                    $"[{DateTime.Now:HH:mm:ss}] SUCCESS | Returned {result.Restaurants.Count} restaurants.");
+                    $"[{DateTime.Now:HH:mm:ss}] SUCCESS [{requestId}] | " +
+                    $"Returned {result.Restaurants.Count} restaurants | " +
+                    $"Duration: {elapsed:F0}ms");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERROR | {ex.Message}");
+                var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
+
+                Console.WriteLine(
+                    $"[{DateTime.Now:HH:mm:ss}] ERROR [{requestId}] | " +
+                    $"{ex.GetType().Name}: {ex.Message} | Duration: {elapsed:F0}ms");
 
                 ctx.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-                var bytes = Encoding.UTF8.GetBytes($"Server error: {ex.Message}");
-                await ctx.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
+                var errBytes = Encoding.UTF8.GetBytes(
+                    JsonConvert.SerializeObject(new { error = ex.Message }));
+                ctx.Response.ContentType = "application/json";
+                await ctx.Response.OutputStream.WriteAsync(errBytes, 0, errBytes.Length);
             }
             finally
             {

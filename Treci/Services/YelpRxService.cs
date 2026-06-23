@@ -11,48 +11,45 @@ namespace Treci
 {
     public class YelpRxService
     {
-        private static readonly HttpClient _client =
-            new HttpClient();
+        private static readonly HttpClient _client = new HttpClient();
 
         static YelpRxService()
         {
-            var configuration =
-                new ConfigurationBuilder()
+            var configuration = new ConfigurationBuilder()
                 .AddJsonFile("appsettings.json")
                 .Build();
 
             var apiKey = configuration["YelpApiKey"];
 
             _client.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue(
-                    "Bearer",
-                    apiKey);
+                new AuthenticationHeaderValue("Bearer", apiKey);
         }
 
-        public IObservable<Restaurant>
-            GetRestaurants(string location)
+        public IObservable<Restaurant> GetRestaurants(string location)
         {
             return Observable
                 .FromAsync(async () =>
                 {
                     var url =
-    $"https://api.yelp.com/v3/businesses/search?term=restaurants&location={Uri.EscapeDataString(location)}";
+                        $"https://api.yelp.com/v3/businesses/search" +
+                        $"?term=restaurants" +
+                        $"&location={Uri.EscapeDataString(location)}" +
+                        $"&limit=50";
 
-                    var json =
-                        await _client.GetStringAsync(url);
-Console.WriteLine(json);
+                    Console.WriteLine(
+                        $"[{DateTime.Now:HH:mm:ss}] YELP API CALL | Location: {location} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
 
-                    var root =
-                        JObject.Parse(json);
+                    var json = await _client.GetStringAsync(url);
+                    var root = JObject.Parse(json);
 
                     return root["businesses"]
                         ?.ToObject<List<Restaurant>>()
                         ?? new List<Restaurant>();
                 })
+                .SubscribeOn(TaskPoolScheduler.Default)   // API poziv na thread pool
                 .Timeout(TimeSpan.FromSeconds(10))
                 .Retry(2)
-                .SelectMany(x => x)
-                .SubscribeOn(TaskPoolScheduler.Default);
+                .SelectMany(x => x);
         }
     }
 }
