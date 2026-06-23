@@ -9,7 +9,7 @@ namespace Treci
     {
         // Interno stanje — čuva poslednje sortirane rezultate
         private List<Restaurant> _lastSortedResults = new();
-
+        
         public SortActor()
         {
             Receive<AggregatedData>(data =>

@@ -24,8 +24,9 @@ namespace Treci
                 var parent = Sender;
 
                 // Čisti prethodno stanje
-                while (!_restaurants.IsEmpty)
-                    _restaurants.TryTake(out _);
+               // while (!_restaurants.IsEmpty)
+             //       _restaurants.TryTake(out _);
+             _restaurants.Clear();
 
                 _subscription?.Dispose();
 
@@ -58,6 +59,8 @@ namespace Treci
                                 $"[{DateTime.Now:HH:mm:ss}] FETCH ACTOR | Stream completed | " +
                                 $"Total collected: {_restaurants.Count} | Thread: {Thread.CurrentThread.ManagedThreadId}");
                             parent.Tell(new AggregatedData(new List<Restaurant>(_restaurants)));
+                        
+                             _subscription?.Dispose();
                         });
             });
         }

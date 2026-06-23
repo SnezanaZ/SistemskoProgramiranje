@@ -42,9 +42,23 @@ namespace Treci
                     var json = await _client.GetStringAsync(url);
                     var root = JObject.Parse(json);
 
-                    return root["businesses"]
-                        ?.ToObject<List<Restaurant>>()
-                        ?? new List<Restaurant>();
+                    // return root["businesses"]
+                    //     ?.ToObject<List<Restaurant>>()
+                    //     ?? new List<Restaurant>();
+
+                    var arr = root["businesses"] as JArray;
+
+        return arr?
+            .Select(b => new Restaurant
+            {
+                Name = (string)b["name"],
+                Rating = (double?)b["rating"] ?? 0,
+                ReviewCount = (int?)b["review_count"] ?? 0,
+                Price = (string)b["price"],
+                IsClosed = (bool?)b["is_closed"] ?? false
+            })
+            .ToList()
+            ?? new List<Restaurant>();
                 })
                 .SubscribeOn(TaskPoolScheduler.Default)   // API poziv na thread pool
                 .Timeout(TimeSpan.FromSeconds(10))

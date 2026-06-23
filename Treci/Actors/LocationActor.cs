@@ -6,6 +6,7 @@ namespace Treci
     public class LocationActor : ReceiveActor
     {
         private IActorRef _originalSender;
+        private IActorRef _sortActor;
         private readonly string _location;
 
         public LocationActor(string location)
@@ -33,13 +34,13 @@ namespace Treci
                     $"[{DateTime.Now:HH:mm:ss}] LOCATION ACTOR | Aggregation done for: {_location} | " +
                     $"Count: {data.Restaurants.Count} | Thread: {Thread.CurrentThread.ManagedThreadId}");
 
-                var sortActor = Context.ActorOf(
+                _sortActor = Context.ActorOf(
                     Props.Create(() => new SortActor())
                          .WithDispatcher("yelp-dispatcher"),
                     $"sort-{_location.Replace(" ", "_")}");
 
                 // Self kao sender — SortActor odgovara LocationActor-u
-                sortActor.Tell(data, Self);
+                _sortActor.Tell(data, Self);
             });
 
             Receive<SortedData>(data =>
@@ -49,6 +50,8 @@ namespace Treci
                     $"Count: {data.Restaurants.Count}");
 
                 _originalSender.Tell(data);
+                
+                Context.Stop(_sortActor);
                 Context.Stop(Self);
             });
 
@@ -65,6 +68,7 @@ namespace Treci
         protected override void PostStop()
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] LOCATION ACTOR | Stopped for: {_location}");
+            _sortActor?.Tell(PoisonPill.Instance);
             base.PostStop();
         }
     }
