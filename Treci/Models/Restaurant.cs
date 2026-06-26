@@ -19,7 +19,6 @@ namespace Treci
         [JsonProperty("is_closed")]
         public bool IsClosed { get; set; }
 
-        public int PriceLevel =>
-            Price?.Length ?? 0;
+        public int PriceLevel => Price?.Length ?? 0;
     }
 }
