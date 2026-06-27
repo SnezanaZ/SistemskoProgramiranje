@@ -30,7 +30,7 @@ namespace Treci
 
             Receive<SortedData>(data =>
 {
-    if (!_pendingSort.Remove(Sender, out var location))
+    /*if (!_pendingSort.Remove(Sender, out var location))
         return;
 
     if (!_cache.ContainsKey(location))
@@ -46,6 +46,11 @@ namespace Treci
         .ThenByDescending(r => r.Rating)
         .ToList();
 
+    _lastUpdated[location] = DateTime.Now;*/
+    if (!_pendingSort.Remove(Sender, out var location)) return;
+    
+    // Zameni staro stanje novim — ne Concat
+    _cache[location] = data.Restaurants;
     _lastUpdated[location] = DateTime.Now;
 
     Console.WriteLine(
