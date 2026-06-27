@@ -50,37 +50,43 @@ namespace Treci
                     $"[{DateTime.Now:HH:mm:ss}] RX POLL | Tick #{tick} | Location: {location} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId}"))
                 // Za svaki tick, asinhrono pozovi API
                 .SelectMany(tick => Observable
-                    .FromAsync(async () =>
-                    {
-                        var url =
-                            $"https://api.yelp.com/v3/businesses/search" +
-                            $"?term=restaurants" +
-                            $"&location={Uri.EscapeDataString(location)}" +
-                            $"&limit=50";
+    .FromAsync(async () =>
+    {
+        var url =
+            $"https://api.yelp.com/v3/businesses/search" +
+            $"?term=restaurants" +
+            $"&location={Uri.EscapeDataString(location)}" +
+            $"&limit=50";
 
-                        Console.WriteLine(
-                            $"[{DateTime.Now:HH:mm:ss}] YELP API CALL | Location: {location} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
+        Console.WriteLine(
+            $"[{DateTime.Now:HH:mm:ss}] YELP API CALL | Location: {location} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId}");
 
-                        var json = await _client.GetStringAsync(url);
-                        var root = JObject.Parse(json);
-                        var arr = root["businesses"] as JArray;
+        var json = await _client.GetStringAsync(url);
+        var root = JObject.Parse(json);
+        var arr = root["businesses"] as JArray;
 
-                        return arr?
-                            .Select(b => new Restaurant
-                            {
-                                Name        = (string)b["name"],
-                                Rating      = (double?)b["rating"]      ?? 0,
-                                ReviewCount = (int?)b["review_count"]   ?? 0,
-                                Price       = (string)b["price"],
-                                IsClosed    = (bool?)b["is_closed"]     ?? false
-                            })
-                            .ToList()
-                            ?? new List<Restaurant>();
-                    })
-                    .SubscribeOn(TaskPoolScheduler.Default)
-                    .Timeout(TimeSpan.FromSeconds(10))
-                    .Retry(2)
-                )
+        return arr?
+            .Select(b => new Restaurant
+            {
+                Name = (string)b["name"],
+                Rating = (double?)b["rating"] ?? 0,
+                ReviewCount = (int?)b["review_count"] ?? 0,
+                Price = (string?)b["price"] ?? "",
+                IsClosed = (bool?)b["is_closed"] ?? false
+            })
+            .ToList()
+            ?? new List<Restaurant>();
+    })
+    .SubscribeOn(TaskPoolScheduler.Default)
+    .Timeout(TimeSpan.FromSeconds(10))
+    .Retry(2)
+    .Catch<List<Restaurant>, Exception>(ex =>
+    {
+        Console.WriteLine(
+            $"[{DateTime.Now:HH:mm:ss}] YELP API ERROR | Location: {location} | {ex.Message} — skipping tick");
+        return Observable.Return(new List<Restaurant>());
+    })
+)
                 // Rx filtriranje i mapiranje — samo kvalitetni, otvoreni restorani
                 .Select(list =>
                 {
@@ -93,7 +99,7 @@ namespace Treci
                         $"Raw: {list.Count} → Filtered: {filtered.Count}");
 
                     return new RestaurantBatch(location, filtered);
-                });
+                }).ObserveOn(TaskPoolScheduler.Default);
         }
     }
 }

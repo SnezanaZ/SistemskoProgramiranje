@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Net;
 using System.Text;
 using System.Threading;
@@ -11,43 +10,26 @@ namespace Treci
 {
     class Program
     {
-        // Lokacije za koje se polling pokreće pri startu servera
-        private static readonly string[] _preloadLocations = { "Belgrade", "Novi Sad", "Niš" };
-
-        private static ActorSystem _system;
-        private static IActorRef _manager;
-
         static async Task Main(string[] args)
         {
-            _system = ActorSystem.Create("YelpSystem", SystemConfig.GetAkkaConfig());
+            var system = ActorSystem.Create("YelpSystem", SystemConfig.GetAkkaConfig());
 
-            // 1. Kreiraj StateActor — čuva keširano stanje
-            var stateActor = _system.ActorOf(
+            var stateActor = system.ActorOf(
                 Props.Create(() => new StateActor())
                      .WithDispatcher("yelp-dispatcher"),
                 "state");
 
-            // 2. Kreiraj RxCoordinatorActor — upravlja periodičnim Rx streamovima
             var pollInterval = TimeSpan.FromMinutes(2);
-            var rxCoordinator = _system.ActorOf(
+            var rxCoordinator = system.ActorOf(
                 Props.Create(() => new RxCoordinatorActor(stateActor, pollInterval))
                      .WithDispatcher("yelp-dispatcher"),
                 "rx-coordinator");
-
-            // 3. Kreiraj ManagerActor — prima web zahteve
-            _manager = _system.ActorOf(
+            rxCoordinator.Tell(new StartPolling("Belgrade"));
+            var manager = system.ActorOf(
                 Props.Create(() => new ManagerActor(stateActor, rxCoordinator))
                      .WithDispatcher("yelp-dispatcher"),
                 "manager");
 
-            // 4. Pokreni polling za unapred poznate lokacije (warm-up)
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] STARTUP | Pre-loading {_preloadLocations.Length} locations...");
-            foreach (var location in _preloadLocations)
-            {
-                rxCoordinator.Tell(new StartPolling(location));
-            }
-
-            // Web server
             var listener = new HttpListener();
             listener.Prefixes.Add("http://localhost:8080/restaurants/");
             listener.Start();
@@ -57,7 +39,7 @@ namespace Treci
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Listening on: http://localhost:8080/restaurants/");
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Example: http://localhost:8080/restaurants/?location=Belgrade");
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Poll interval: {pollInterval.TotalMinutes} min");
-            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Type 'exit' or press Ctrl+C to stop.");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Type 'q' to stop.");
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ========================================");
 
             var cts = new CancellationTokenSource();
@@ -65,19 +47,20 @@ namespace Treci
             Console.CancelKeyPress += (s, e) =>
             {
                 e.Cancel = true;
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SHUTDOWN SIGNAL RECEIVED (Ctrl+C)");
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SHUTDOWN SIGNAL (Ctrl+C)");
                 cts.Cancel();
                 listener.Stop();
             };
 
-            Task.Run(() =>
+            _ = Task.Run(() =>
             {
                 while (!cts.Token.IsCancellationRequested)
                 {
                     var line = Console.ReadLine();
-                    if (line?.Equals("exit", StringComparison.OrdinalIgnoreCase) == true)
+                    if (line?.Equals("q", StringComparison.OrdinalIgnoreCase) == true ||
+                        line?.Equals("exit", StringComparison.OrdinalIgnoreCase) == true)
                     {
-                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SHUTDOWN SIGNAL RECEIVED (exit command)");
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SHUTDOWN SIGNAL ('q')");
                         cts.Cancel();
                         listener.Stop();
                         break;
@@ -91,16 +74,12 @@ namespace Treci
                 {
                     var context = await listener.GetContextAsync();
 
-                    // ISPRAVKA: fire-and-forget exceptions se više ne gube tiho.
-                    // Hvatamo Task i logujemo sve neočekivane greške.
-                    _ = HandleRequest(context).ContinueWith(t =>
+                    _ = HandleRequest(context, manager).ContinueWith(t =>
                     {
                         if (t.IsFaulted)
-                        {
                             Console.WriteLine(
                                 $"[{DateTime.Now:HH:mm:ss}] UNHANDLED REQUEST ERROR | " +
                                 $"{t.Exception?.GetBaseException().Message}");
-                        }
                     }, TaskContinuationOptions.OnlyOnFaulted);
                 }
             }
@@ -109,38 +88,35 @@ namespace Treci
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SERVER STOPPING...");
                 listener.Close();
-                await _system.Terminate();
+                await system.Terminate();
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SERVER STOPPED. Goodbye.");
             }
         }
 
-        private static async Task HandleRequest(HttpListenerContext ctx)
+        private static async Task HandleRequest(HttpListenerContext ctx, IActorRef manager)
         {
             var location = ctx.Request.QueryString["location"];
             var requestId = Guid.NewGuid().ToString("N")[..8];
 
-            Console.WriteLine(
-                $"[{DateTime.Now:HH:mm:ss}] ── REQUEST [{requestId}] ──────────────────────");
-            Console.WriteLine(
-                $"[{DateTime.Now:HH:mm:ss}] Method: {ctx.Request.HttpMethod} | " +
-                $"URL: {ctx.Request.Url} | Thread: {Thread.CurrentThread.ManagedThreadId}");
-
-            if (string.IsNullOrWhiteSpace(location))
-            {
-                ctx.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                var errBytes = Encoding.UTF8.GetBytes(
-                    JsonConvert.SerializeObject(new { error = "Query parameter 'location' is required." }));
-                ctx.Response.ContentType = "application/json";
-                await ctx.Response.OutputStream.WriteAsync(errBytes, 0, errBytes.Length);
-                ctx.Response.Close();
-                return;
-            }
-
-            var startTime = DateTime.Now;
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ── REQUEST [{requestId}] ──────────────────────");
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Method: {ctx.Request.HttpMethod} | URL: {ctx.Request.Url} | Thread: {Thread.CurrentThread.ManagedThreadId}");
 
             try
             {
-                var result = await _manager.Ask<CachedDataResponse>(
+                if (string.IsNullOrWhiteSpace(location))
+                {
+                    ctx.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                    ctx.Response.ContentType = "application/json";
+                    var errBytes = Encoding.UTF8.GetBytes(
+                        JsonConvert.SerializeObject(new { error = "Query parameter 'location' is required." }));
+                    await ctx.Response.OutputStream.WriteAsync(errBytes, 0, errBytes.Length);
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] BAD REQUEST [{requestId}] | Missing 'location' parameter");
+                    return;
+                }
+
+                var startTime = DateTime.Now;
+
+                var result = await manager.Ask<CachedDataResponse>(
                     new FetchRequest(location),
                     TimeSpan.FromSeconds(5));
 
@@ -149,23 +125,21 @@ namespace Treci
                 if (!result.IsReady)
                 {
                     ctx.Response.StatusCode = (int)HttpStatusCode.ServiceUnavailable;
-                    var notReadyBytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new
+                    ctx.Response.ContentType = "application/json; charset=utf-8";
+                    var body = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new
                     {
-                        location = location,
+                        location,
                         message = "Data is being fetched, please retry in a few seconds.",
                         isReady = false
                     }));
-                    ctx.Response.ContentType = "application/json; charset=utf-8";
-                    await ctx.Response.OutputStream.WriteAsync(notReadyBytes, 0, notReadyBytes.Length);
-
-                    Console.WriteLine(
-                        $"[{DateTime.Now:HH:mm:ss}] NOT READY [{requestId}] | Location: {location} | Duration: {elapsed:F0}ms");
+                    await ctx.Response.OutputStream.WriteAsync(body, 0, body.Length);
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] NOT READY [{requestId}] | Location: {location} | Duration: {elapsed:F0}ms");
                 }
                 else
                 {
                     var json = JsonConvert.SerializeObject(new
                     {
-                        location = location,
+                        location,
                         count = result.Restaurants.Count,
                         restaurants = result.Restaurants
                     }, Formatting.Indented);
@@ -174,23 +148,21 @@ namespace Treci
                     ctx.Response.StatusCode = (int)HttpStatusCode.OK;
                     ctx.Response.ContentType = "application/json; charset=utf-8";
                     await ctx.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
-
-                    Console.WriteLine(
-                        $"[{DateTime.Now:HH:mm:ss}] SUCCESS [{requestId}] | " +
-                        $"Returned {result.Restaurants.Count} restaurants | Duration: {elapsed:F0}ms");
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SUCCESS [{requestId}] | Returned {result.Restaurants.Count} restaurants | Duration: {elapsed:F0}ms");
                 }
             }
             catch (Exception ex)
             {
-                var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
-                Console.WriteLine(
-                    $"[{DateTime.Now:HH:mm:ss}] ERROR [{requestId}] | {ex.GetType().Name}: {ex.Message} | Duration: {elapsed:F0}ms");
-
-                ctx.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-                var errBytes = Encoding.UTF8.GetBytes(
-                    JsonConvert.SerializeObject(new { error = ex.Message }));
-                ctx.Response.ContentType = "application/json";
-                await ctx.Response.OutputStream.WriteAsync(errBytes, 0, errBytes.Length);
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERROR [{requestId}] | {ex.GetType().Name}: {ex.Message}");
+                try
+                {
+                    ctx.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+                    ctx.Response.ContentType = "application/json";
+                    var errBytes = Encoding.UTF8.GetBytes(
+                        JsonConvert.SerializeObject(new { error = ex.Message }));
+                    await ctx.Response.OutputStream.WriteAsync(errBytes, 0, errBytes.Length);
+                }
+                catch { /* response možda već zatvoren */ }
             }
             finally
             {

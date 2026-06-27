@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -6,118 +5,85 @@ using Akka.Actor;
 
 namespace Treci
 {
-    /// <summary>
-    /// Centralni aktor koji čuva interno stanje — keširane, sortirane liste
-    /// restorana po lokaciji. Ažurira se isključivo kroz RestaurantBatch poruke
-    /// koje dolaze od Rx streama, nezavisno od web zahteva.
-    ///
-    /// Web zahtevi samo čitaju ovo stanje (GetCachedData), ne pokreću API pozive.
-    /// 
-    /// ISPRAVKA: _pendingSort memory leak — ako SortActor crashuje pre odgovora,
-    /// unos bi ostao zauvek. Rešenje: Watch(sortActor) + Terminated handler koji
-    /// čisti unos ako SortedData nikad nije stigao.
-    /// </summary>
     public class StateActor : ReceiveActor
     {
-        // Interno stanje: lokacija → poslednja sortirana lista restorana
         private readonly Dictionary<string, List<Restaurant>> _cache = new();
         private readonly Dictionary<string, DateTime> _lastUpdated = new();
-
-        // Pratimo koji SortActor obrađuje koju lokaciju
         private readonly Dictionary<IActorRef, string> _pendingSort = new();
-
-        // Pratimo koji SortActori su već odgovorili (da razlikujemo crash od završetka)
-        private readonly HashSet<IActorRef> _completedSort = new();
 
         public StateActor()
         {
-            // Stigao novi batch od Rx streama — delegiraj sortiranje
             Receive<RestaurantBatch>(batch =>
             {
                 Console.WriteLine(
-                    $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Received batch for: {batch.Location} | " +
-                    $"Count: {batch.Restaurants.Count} | Thread: {Thread.CurrentThread.ManagedThreadId}");
+                    $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Batch received | Location: {batch.Location} | Count: {batch.Restaurants.Count} | Thread: {Thread.CurrentThread.ManagedThreadId}");
 
                 var sortActor = Context.ActorOf(
                     Props.Create(() => new SortActor())
                          .WithDispatcher("yelp-dispatcher"),
                     $"sort-{Guid.NewGuid():N}");
 
-                // Zapamti koji SortActor obrađuje koju lokaciju
                 _pendingSort[sortActor] = batch.Location;
-
-                // ISPRAVKA: Watch SortActor-a da bi Terminated stigao ako crashuje
                 Context.Watch(sortActor);
-
                 sortActor.Tell(new AggregatedData(batch.Restaurants), Self);
             });
 
-            // SortActor vratio sortirane podatke — sačuvaj u interno stanje
             Receive<SortedData>(data =>
-            {
-                if (!_pendingSort.TryGetValue(Sender, out var location))
-                {
-                    Console.WriteLine(
-                        $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | SortedData od nepoznatog SortActor-a — ignorišem");
-                    return;
-                }
+{
+    if (!_pendingSort.Remove(Sender, out var location))
+        return;
 
-                // Označi kao uspešno završen pre uklanjanja iz pending mape
-                _completedSort.Add(Sender);
-                _pendingSort.Remove(Sender);
+    if (!_cache.ContainsKey(location))
+    {
+        _cache[location] = new List<Restaurant>();
+    }
 
-                _cache[location] = data.Restaurants;
-                _lastUpdated[location] = DateTime.Now;
+    _cache[location] = _cache[location]
+        .Concat(data.Restaurants)
+        .GroupBy(r => r.Name)
+        .Select(g => g.OrderByDescending(x => x.Rating).First())
+        .OrderByDescending(r => r.PriceLevel)
+        .ThenByDescending(r => r.Rating)
+        .ToList();
 
-                Console.WriteLine(
-                    $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Cache updated | " +
-                    $"Location: {location} | Count: {data.Restaurants.Count} | " +
-                    $"Time: {_lastUpdated[location]:HH:mm:ss}");
-            });
+    _lastUpdated[location] = DateTime.Now;
 
-            // ISPRAVKA: Hvatamo Terminated signal od watchovanog SortActor-a.
-            // Ako je već završio normalno (_completedSort), ignorišemo.
-            // Ako nije — znači da je crashovao pre odgovora: čistimo _pendingSort.
+    Console.WriteLine(
+        $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Cache updated | " +
+        $"Location: {location} | Count: {_cache[location].Count}");
+});
+
+            // Terminated: ako SortActor nije u _pendingSort — već je završio normalno, ignoriši.
+            // Ako jeste — crashovao je pre odgovora, čisti unos.
             Receive<Terminated>(t =>
             {
-                if (_completedSort.Remove(t.ActorRef))
+                if (_pendingSort.Remove(t.ActorRef, out var location))
                 {
-                    // Normalan završetak — Context.Stop u SortActor-u okida Terminated
-                    return;
-                }
-
-                if (_pendingSort.TryGetValue(t.ActorRef, out var location))
-                {
-                    _pendingSort.Remove(t.ActorRef);
                     Console.WriteLine(
-                        $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | SortActor crashed before reply | " +
-                        $"Location: {location} — pending entry cleaned up");
+                        $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | SortActor crashed | Location: {location} — cleaned up");
                 }
+                // else: normalan završetak — ništa
             });
 
-            // Web server traži trenutno keširano stanje — odgovori odmah
             Receive<GetCachedData>(req =>
             {
-                var sender = Sender;
                 var isReady = _cache.ContainsKey(req.Location);
                 var restaurants = isReady
                     ? new List<Restaurant>(_cache[req.Location])
                     : new List<Restaurant>();
 
                 Console.WriteLine(
-                    $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | GetCachedData | " +
-                    $"Location: {req.Location} | Ready: {isReady} | Count: {restaurants.Count}" +
-                    (isReady ? $" | Last updated: {_lastUpdated[req.Location]:HH:mm:ss}" : " | Not yet cached"));
+                    $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | GetCachedData | Location: {req.Location} | Ready: {isReady} | Count: {restaurants.Count}" +
+                    (isReady ? $" | Updated: {_lastUpdated[req.Location]:HH:mm:ss}" : " | Not yet cached"));
 
-                sender.Tell(new CachedDataResponse(req.Location, restaurants, isReady));
+                Sender.Tell(new CachedDataResponse(req.Location, restaurants, isReady));
             });
         }
 
         protected override void PostStop()
         {
             Console.WriteLine(
-                $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Stopped | " +
-                $"Cached locations: {string.Join(", ", _cache.Keys)}");
+                $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Stopped | Cached: {string.Join(", ", _cache.Keys)}");
             base.PostStop();
         }
     }

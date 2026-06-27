@@ -56,10 +56,11 @@ namespace Treci
                             // Rx stream šalje poruke aktorima
                             _stateActor.Tell(batch);
                         },
-                        onError: ex =>
+                       onError: ex =>
                         {
                             Console.WriteLine(
                                 $"[{DateTime.Now:HH:mm:ss}] RX COORDINATOR | Stream error for {location}: {ex.Message}");
+                            _subscriptions.Remove(location);
                         });
 
                 _subscriptions[location] = subscription;

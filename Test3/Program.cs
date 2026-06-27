@@ -1,94 +1,104 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using System.Net.Http;
-using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
-namespace YelpClientPerf
+namespace TreciClient
 {
     class Program
     {
+        private static readonly HttpClient _client = new();
+        private const string BaseUrl = "http://localhost:8080/restaurants/";
+
+        private static readonly List<string> Locations = new()
+        {
+            "Belgrade", "London", "New York", "Paris", "Tokyo"
+        };
+
         static async Task Main(string[] args)
         {
-            var locations = new List<string>
+            Console.WriteLine("=== Yelp Restaurant Client ===");
+            Console.WriteLine($"Lokacije: {string.Join(", ", Locations)}");
+            Console.WriteLine(new string('=', 40));
+            Console.WriteLine();
+
+            foreach (var location in Locations)
             {
-                "New York",
-                "San Francisco",
-                "Los Angeles",
-                "Chicago",
-                "London",
-                "Paris",
-                "Berlin",
-                "Tokyo",
-                "Sydney",
-                "Toronto"
-            };
+                await FetchAndDisplay(location);
+                Console.WriteLine();
+            }
 
-            using var client = new HttpClient();
+            Console.WriteLine("=== Gotovo ===");
+        }
 
-            var tasks = new List<Task<long>>();
-            var semaphore = new SemaphoreSlim(5); // max 5 paralelnih zahteva
+        private static async Task FetchAndDisplay(string location)
+        {
+            var url = $"{BaseUrl}?location={Uri.EscapeDataString(location)}";
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Zahtev za: {location}");
 
-            var swTotal = Stopwatch.StartNew();
+            const int maxRetries = 10;
+            const int retryDelayMs = 3000;
 
-            foreach (var loc in locations)
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                // više zahteva po lokaciji
-                for (int i = 0; i < 5; i++)
+                try
                 {
-                    await semaphore.WaitAsync();
-                    tasks.Add(Task.Run(async () =>
+                    var response = await _client.GetAsync(url);
+                    var body = await response.Content.ReadAsStringAsync();
+
+                    if ((int)response.StatusCode == 503)
                     {
-                        try
-                        {
-                            return await SendRequest(client, loc);
-                        }
-                        finally
-                        {
-                            semaphore.Release();
-                        }
-                    }));
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Podaci se ucitavaju...");
+                        await Task.Delay(retryDelayMs);
+                        continue;
+                    }
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var err = JObject.Parse(body);
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Greska: {err["message"] ?? err["error"]}");
+                        return;
+                    }
+
+                    var json = JObject.Parse(body);
+                    var restaurants = json["restaurants"] as JArray;
+                    var count = (int)json["count"];
+
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Rezultati za: {location} ({count} restorana)");
+                    Console.WriteLine(new string('-', 60));
+
+                    if (count == 0)
+                    {
+                        Console.WriteLine("  Nema restorana koji zadovoljavaju kriterijume.");
+                        return;
+                    }
+
+                    int rank = 1;
+                    foreach (var r in restaurants)
+                    {
+                        var name    = (string)r["name"];
+                        var rating  = (double)r["rating"];
+                        var reviews = (int)r["review_count"];
+                        var price   = (string)r["price"] ?? "N/A";
+
+                        Console.WriteLine($"  {rank,2}. {name}");
+                        Console.WriteLine($"      Ocena: {rating:F1} | Recenzije: {reviews} | Cena: {price}");
+                        rank++;
+                    }
+
+                    Console.WriteLine(new string('-', 60));
+                    return;
+                }
+                catch (HttpRequestException ex)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Greska pri povezivanju: {ex.Message}");
+                    Console.WriteLine("Da li server radi na http://localhost:8080?");
+                    return;
                 }
             }
 
-            var durations = await Task.WhenAll(tasks);
-
-            swTotal.Stop();
-
-            Console.WriteLine("=== Performance Test Finished ===");
-            Console.WriteLine($"Total requests: {durations.Length}");
-            Console.WriteLine($"Average time: {Math.Round(durations.Average(), 2)} ms");
-            Console.WriteLine($"Fastest: {durations.Min()} ms | Slowest: {durations.Max()} ms");
-            Console.WriteLine($"Total test time: {swTotal.ElapsedMilliseconds} ms");
-            Console.WriteLine($"Throughput: {Math.Round(durations.Length / (swTotal.ElapsedMilliseconds / 1000.0), 2)} requests/sec");
-        }
-
-        private static async Task<long> SendRequest(HttpClient client, string location)
-        {
-            var sw = Stopwatch.StartNew();
-            try
-            {
-                var url = $"http://localhost:8080/restaurants/?location={Uri.EscapeDataString(location)}";
-                var response = await client.GetAsync(url);
-                var content = await response.Content.ReadAsStringAsync();
-                sw.Stop();
-
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Location: {location} | Status: {response.StatusCode} | Time: {sw.ElapsedMilliseconds} ms");
-
-                // samo prvih 100 karaktera da ne zatrpa konzolu
-                Console.WriteLine(content.Substring(0, Math.Min(content.Length, 100)));
-                Console.WriteLine("---------------------------------------------------");
-
-                return sw.ElapsedMilliseconds;
-            }
-            catch (Exception ex)
-            {
-                sw.Stop();
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERROR for {location}: {ex.Message}");
-                return sw.ElapsedMilliseconds;
-            }
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Podaci nisu stigli nakon {maxRetries} pokusaja.");
         }
     }
 }
