@@ -65,6 +65,18 @@ namespace Treci
 
                 _subscriptions[location] = subscription;
             });
+
+            Receive<StopPolling>(msg =>
+{
+    if (_subscriptions.TryGetValue(msg.Location, out var sub))
+    {
+        sub.Dispose();
+        _subscriptions.Remove(msg.Location);
+
+        Console.WriteLine(
+            $"[{DateTime.Now:HH:mm:ss}] RX COORDINATOR | Stopped polling {msg.Location}");
+    }
+});
         }
 
         protected override void PostStop()

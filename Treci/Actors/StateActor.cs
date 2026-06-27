@@ -10,22 +10,33 @@ namespace Treci
         private readonly Dictionary<string, List<Restaurant>> _cache = new();
         private readonly Dictionary<string, DateTime> _lastUpdated = new();
         private readonly Dictionary<IActorRef, string> _pendingSort = new();
-
+        private readonly IActorRef _sortActor;
         public StateActor()
         {
+             _sortActor = Context.ActorOf(
+        Props.Create(() => new SortActor())
+             .WithDispatcher("yelp-dispatcher"),
+        "sorter");
+
             Receive<RestaurantBatch>(batch =>
             {
                 Console.WriteLine(
                     $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Batch received | Location: {batch.Location} | Count: {batch.Restaurants.Count} | Thread: {Thread.CurrentThread.ManagedThreadId}");
 
-                var sortActor = Context.ActorOf(
-                    Props.Create(() => new SortActor())
-                         .WithDispatcher("yelp-dispatcher"),
-                    $"sort-{Guid.NewGuid():N}");
+                // var sortActor = Context.ActorOf(
+                //     Props.Create(() => new SortActor())
+                //          .WithDispatcher("yelp-dispatcher"),
+                //     $"sort-{Guid.NewGuid():N}");
 
-                _pendingSort[sortActor] = batch.Location;
-                Context.Watch(sortActor);
-                sortActor.Tell(new AggregatedData(batch.Restaurants), Self);
+                // _pendingSort[sortActor] = batch.Location;
+                // Context.Watch(sortActor);
+                // sortActor.Tell(new AggregatedData(batch.Restaurants), Self);
+
+                _pendingSort[_sortActor] = batch.Location;
+
+_sortActor.Tell(
+    new AggregatedData(batch.Restaurants),
+    Self);
             });
 
             Receive<SortedData>(data =>

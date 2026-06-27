@@ -23,4 +23,6 @@ namespace Treci
 
     // ManagerActor → RxCoordinatorActor: pokreni polling za lokaciju
     public record StartPolling(string Location);
+
+    public record StopPolling(string Location);
 }

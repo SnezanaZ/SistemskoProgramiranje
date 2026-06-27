@@ -38,15 +38,15 @@ namespace Treci
                 Sender.Tell(new SortedData(new List<Restaurant>(_lastSortedResults)));
 
                 // Zaustavi se nakon posla — StateActor kreira novi SortActor za svaki batch
-                Context.Stop(Self);
+              //  Context.Stop(Self);
             });
         }
 
-        protected override void PostStop()
-        {
-            Console.WriteLine(
-                $"[{DateTime.Now:HH:mm:ss}] SORT ACTOR | Stopped | Last count: {_lastSortedResults.Count}");
-            base.PostStop();
-        }
+        // protected override void PostStop()
+        // {
+        //     Console.WriteLine(
+        //         $"[{DateTime.Now:HH:mm:ss}] SORT ACTOR | Stopped | Last count: {_lastSortedResults.Count}");
+        //     base.PostStop();
+        // }
     }
 }
