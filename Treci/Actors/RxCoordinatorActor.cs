@@ -5,20 +5,12 @@ using Akka.Actor;
 
 namespace Treci
 {
-    /// <summary>
-    /// Pokreće i održava Rx.NET periodične stream-ove za svaku lokaciju.
-    /// Za svaku novu lokaciju kreira jedan trajni Rx subscription koji
-    /// autonomno šalje RestaurantBatch poruke StateActor-u.
-    /// 
-    /// Ovaj aktor je most između Rx sveta i Akka sveta.
-    /// </summary>
     public class RxCoordinatorActor : ReceiveActor
     {
         private readonly YelpRxService _service = new();
         private readonly IActorRef _stateActor;
         private readonly TimeSpan _pollInterval;
 
-        // Čuva aktivne subscriptions po lokaciji da ne bi duplirano pollali
         private readonly Dictionary<string, IDisposable> _subscriptions = new();
 
         public RxCoordinatorActor(IActorRef stateActor, TimeSpan pollInterval)
@@ -42,7 +34,6 @@ namespace Treci
                     $"Location: {location} | Interval: {_pollInterval.TotalSeconds}s | " +
                     $"Thread: {Thread.CurrentThread.ManagedThreadId}");
 
-                // Pokreni Rx stream — periodično, trajno, nezavisno od web zahteva
                 var subscription = _service
                     .PollRestaurantsPeriodically(location, _pollInterval)
                     .Subscribe(
@@ -52,8 +43,7 @@ namespace Treci
                                 $"[{DateTime.Now:HH:mm:ss}] RX COORDINATOR | Emitting batch → StateActor | " +
                                 $"Location: {batch.Location} | Count: {batch.Restaurants.Count}");
 
-                            // Emituj kao poruku StateActor-u — ovo je srž arhitekture:
-                            // Rx stream šalje poruke aktorima
+                        
                             _stateActor.Tell(batch);
                         },
                        onError: ex =>
@@ -81,7 +71,6 @@ namespace Treci
 
         protected override void PostStop()
         {
-            // Počisti sve aktivne Rx subscriptions
             foreach (var (location, sub) in _subscriptions)
             {
                 sub.Dispose();

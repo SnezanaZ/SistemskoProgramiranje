@@ -23,32 +23,21 @@ namespace Treci
                 new AuthenticationHeaderValue("Bearer", apiKey);
         }
 
-        /// <summary>
-        /// Periodično (svaki interval) poziva Yelp API za datu lokaciju,
-        /// filtrira i mapira rezultate, i emituje ih kao RestaurantBatch poruke.
-        /// Ovo se pokreće nezavisno od web zahteva.
-        /// 
-        /// ISPRAVKA: Umesto rekurzivnog Catch (koji pravi stack overflow pri
-        /// svakoj grešci), koristimo Observable.Defer + .Retry() koji interno
-        /// resubscribuje na isti observable bez gomilanja framera na steku.
-        /// </summary>
         public IObservable<RestaurantBatch> PollRestaurantsPeriodically(
             string location,
             TimeSpan interval)
         {
             return Observable.Defer(() => BuildPollStream(location, interval))
-                .Retry(); // Beskonačan retry — svaka greška pokreće novi Defer (novi stream)
+                .Retry(); 
         }
 
 
         private IObservable<RestaurantBatch> BuildPollStream(string location, TimeSpan interval)
         {
             return Observable
-                // Okida odmah (0), pa zatim svakih `interval`
                 .Timer(TimeSpan.Zero, interval, TaskPoolScheduler.Default)
                 .Do(tick => Console.WriteLine(
                     $"[{DateTime.Now:HH:mm:ss}] RX POLL | Tick #{tick} | Location: {location} | Thread: {System.Threading.Thread.CurrentThread.ManagedThreadId}"))
-                // Za svaki tick, asinhrono pozovi API
                 .SelectMany(tick => Observable
     .FromAsync(async () =>
     {
@@ -87,7 +76,6 @@ namespace Treci
         return Observable.Return(new List<Restaurant>());
     })
 )
-                // Rx filtriranje i mapiranje — samo kvalitetni, otvoreni restorani
                 .Select(list =>
                 {
                     var filtered = list

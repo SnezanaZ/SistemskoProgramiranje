@@ -49,7 +49,6 @@ namespace Treci
     _lastUpdated[location] = DateTime.Now;*/
     if (!_pendingSort.Remove(Sender, out var location)) return;
     
-    // Zameni staro stanje novim — ne Concat
     _cache[location] = data.Restaurants;
     _lastUpdated[location] = DateTime.Now;
 
@@ -58,8 +57,7 @@ namespace Treci
         $"Location: {location} | Count: {_cache[location].Count}");
 });
 
-            // Terminated: ako SortActor nije u _pendingSort — već je završio normalno, ignoriši.
-            // Ako jeste — crashovao je pre odgovora, čisti unos.
+            
             Receive<Terminated>(t =>
             {
                 if (_pendingSort.Remove(t.ActorRef, out var location))
@@ -67,7 +65,6 @@ namespace Treci
                     Console.WriteLine(
                         $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | SortActor crashed | Location: {location} — cleaned up");
                 }
-                // else: normalan završetak — ništa
             });
 
             Receive<GetCachedData>(req =>
