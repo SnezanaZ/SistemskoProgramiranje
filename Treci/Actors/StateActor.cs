@@ -47,9 +47,27 @@ namespace Treci
         .ToList();
 
     _lastUpdated[location] = DateTime.Now;*/
-    if (!_pendingSort.Remove(Sender, out var location)) return;
+    /*if (!_pendingSort.Remove(Sender, out var location)) return;
     
     _cache[location] = data.Restaurants;
+    _lastUpdated[location] = DateTime.Now;
+
+    Console.WriteLine(
+        $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Cache updated | " +
+        $"Location: {location} | Count: {_cache[location].Count}");*/
+        if (!_pendingSort.Remove(Sender, out var location)) return;
+
+    if (!_cache.ContainsKey(location))
+        _cache[location] = new List<Restaurant>();
+
+    _cache[location] = _cache[location]
+        .Concat(data.Restaurants)
+        .GroupBy(r => r.Name)
+        .Select(g => g.OrderByDescending(x => x.Rating).First())
+        .OrderByDescending(r => r.PriceLevel)
+        .ThenByDescending(r => r.Rating)
+        .ToList();
+
     _lastUpdated[location] = DateTime.Now;
 
     Console.WriteLine(

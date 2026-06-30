@@ -45,6 +45,7 @@ namespace Treci
             $"https://api.yelp.com/v3/businesses/search" +
             $"?term=restaurants" +
             $"&location={Uri.EscapeDataString(location)}" +
+             $"&open_now=true"+
             $"&limit=50";
 
         Console.WriteLine(

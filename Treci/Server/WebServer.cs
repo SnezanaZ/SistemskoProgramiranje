@@ -76,7 +76,7 @@ namespace Treci
                 var startTime = DateTime.Now;
                 var result = await _manager.Ask<CachedDataResponse>(
                     new FetchRequest(location),
-                    TimeSpan.FromSeconds(5));
+                    TimeSpan.FromSeconds(8));
                 var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
 
                 if (!result.IsReady)
