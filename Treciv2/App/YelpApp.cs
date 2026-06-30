@@ -37,7 +37,6 @@ namespace Treciv2
             {
                 e.Cancel = true;
                 Console.WriteLine("CTRL+C shutdown triggered");
-
                 cts.Cancel();
                 listener.Stop();
             };
@@ -50,11 +49,9 @@ namespace Treciv2
                 while (!cts.Token.IsCancellationRequested)
                 {
                     var input = Console.ReadLine();
-
                     if (input?.Equals("q", StringComparison.OrdinalIgnoreCase) == true)
                     {
                         Console.WriteLine("'q' shutdown triggered");
-
                         cts.Cancel();
                         listener.Stop();
                         break;
@@ -70,14 +67,13 @@ namespace Treciv2
                 while (!cts.Token.IsCancellationRequested)
                 {
                     HttpListenerContext ctx;
-
                     try
                     {
                         ctx = await listener.GetContextAsync();
                     }
                     catch
                     {
-                        break; // listener stopped
+                        break;
                     }
 
                     _ = HandleRequest(ctx, manager);
@@ -93,15 +89,8 @@ namespace Treciv2
             }
 
             Console.WriteLine("SHUTTING DOWN...");
-
-            try
-            {
-                listener.Close();
-            }
-            catch { }
-
+            try { listener.Close(); } catch { }
             await system.Terminate();
-
             Console.WriteLine("SHUTDOWN COMPLETE");
         }
 
@@ -110,6 +99,13 @@ namespace Treciv2
         // =========================
         private static async Task HandleRequest(HttpListenerContext ctx, IActorRef manager)
         {
+            var requestId = Guid.NewGuid().ToString("N")[..8];
+            var method = ctx.Request.HttpMethod;
+            var url = ctx.Request.Url?.ToString() ?? "unknown";
+            var timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+
+            Console.WriteLine($"[{timestamp}] [{requestId}] --> {method} {url}");
+
             try
             {
                 var location = ctx.Request.QueryString["location"];
@@ -120,38 +116,41 @@ namespace Treciv2
                     var err = Encoding.UTF8.GetBytes("Missing location");
                     await ctx.Response.OutputStream.WriteAsync(err);
                     ctx.Response.Close();
+
+                    Console.WriteLine($"[{timestamp}] [{requestId}] <-- 400 Bad Request | Missing 'location' query parameter");
                     return;
                 }
+
+                Console.WriteLine($"[{timestamp}] [{requestId}] Processing location='{location}' | Querying StateActor...");
 
                 var result = await manager.Ask<CachedDataResponse>(
                     new FetchRequest(location),
                     TimeSpan.FromSeconds(5));
 
-                    if (!result.IsReady || result.Restaurants.Count == 0)
-{
-    ctx.Response.StatusCode = 202; // ACCEPTED
-    var bytess = Encoding.UTF8.GetBytes(
-        "Data is loading, try again in 1-2 seconds");
+                if (!result.IsReady || result.Restaurants.Count == 0)
+                {
+                    ctx.Response.StatusCode = 202;
+                    var bytess = Encoding.UTF8.GetBytes("Data is loading, try again in 1-2 seconds");
+                    await ctx.Response.OutputStream.WriteAsync(bytess);
+                    ctx.Response.Close();
 
-    await ctx.Response.OutputStream.WriteAsync(bytess);
-    ctx.Response.Close();
-    return;
-}
+                    Console.WriteLine($"[{timestamp}] [{requestId}] <-- 202 Accepted | Cache not ready for location='{location}'");
+                    return;
+                }
 
                 var json = System.Text.Json.JsonSerializer.Serialize(result);
-
                 var bytes = Encoding.UTF8.GetBytes(json);
 
                 ctx.Response.StatusCode = 200;
                 ctx.Response.ContentType = "application/json";
-
                 await ctx.Response.OutputStream.WriteAsync(bytes);
-
                 ctx.Response.Close();
+
+                Console.WriteLine($"[{timestamp}] [{requestId}] <-- 200 OK | location='{location}' | {result.Restaurants.Count} restaurants returned");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ERROR: {ex.Message}");
+                Console.WriteLine($"[{timestamp}] [{requestId}] <-- 500 Internal Server Error | {ex.GetType().Name}: {ex.Message}");
 
                 try
                 {

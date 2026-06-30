@@ -14,24 +14,15 @@ namespace Treciv2
             _rxCoordinator = rxCoordinator;
 
             Receive<FetchRequest>(req =>
-{
-    var sender = Sender;
+            {
+                // Pokreni Rx polling ako već nije pokrenut
+                _rxCoordinator.Tell(new StartPolling(req.Location));
 
-    // 1. obavezno pokreni Rx
-    _rxCoordinator.Tell(new StartPolling(req.Location));
-
-    // 2. DODAJ KRATKO ČEKANJE DA SE CACHE POPUNI (kljucno)
-    Context.System.Scheduler.ScheduleTellOnce(
-        TimeSpan.FromSeconds(2),
-        _stateActor,
-        new GetCachedData(req.Location),
-        sender);
-
-    // fallback odmah ako već postoji cache
-    _stateActor
-        .Ask<CachedDataResponse>(new GetCachedData(req.Location), TimeSpan.FromSeconds(5))
-        .PipeTo(sender);
-});
+                // Prosledi zahtev StateActoru i vrati odgovor direktno senderu
+                _stateActor
+                    .Ask<CachedDataResponse>(new GetCachedData(req.Location), TimeSpan.FromSeconds(5))
+                    .PipeTo(Sender);
+            });
         }
     }
 }
