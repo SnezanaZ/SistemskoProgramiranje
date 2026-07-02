@@ -76,7 +76,7 @@ namespace Treci
                 var startTime = DateTime.Now;
                 var result = await _manager.Ask<CachedDataResponse>(
                     new FetchRequest(location),
-                    TimeSpan.FromSeconds(8));
+                    TimeSpan.FromSeconds(15));
                 var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
 
                 if (!result.IsReady)
@@ -100,14 +100,39 @@ namespace Treci
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SUCCESS [{requestId}] | Returned {result.Restaurants.Count} restaurants | Duration: {elapsed:F0}ms");
                 }
             }
+            // catch (Exception ex)
+            // {
+            //     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERROR [{requestId}] | {ex.GetType().Name}: {ex.Message}");
+            //     try
+            //     {
+            //         await WriteJson(ctx, HttpStatusCode.InternalServerError, new { error = ex.Message });
+            //     }
+            //     catch { }
+            // }
+
+            catch (TaskCanceledException)
+            {
+                Console.WriteLine(
+                    $"[{DateTime.Now:HH:mm:ss}] TIMEOUT [{requestId}] | Location: {location}");
+
+                await WriteJson(ctx, HttpStatusCode.ServiceUnavailable, new
+                {
+                    error = "Podaci se još učitavaju, pokušaj ponovo za par sekundi.",
+                    location,
+                    isReady = false,
+                    retry = true
+                });
+            }
             catch (Exception ex)
             {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERROR [{requestId}] | {ex.GetType().Name}: {ex.Message}");
-                try
+                Console.WriteLine(
+                    $"[{DateTime.Now:HH:mm:ss}] ERROR [{requestId}] | {ex.GetType().Name}: {ex.Message}");
+
+                await WriteJson(ctx, HttpStatusCode.InternalServerError, new
                 {
-                    await WriteJson(ctx, HttpStatusCode.InternalServerError, new { error = ex.Message });
-                }
-                catch { }
+                    error = ex.Message,
+                    retry = false
+                });
             }
             finally
             {

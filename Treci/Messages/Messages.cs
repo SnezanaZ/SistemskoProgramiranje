@@ -18,4 +18,6 @@ namespace Treci
     public record StartPolling(string Location);
 
     public record StopPolling(string Location);
+
+    public record FilterCriteria(double MinRating, int MinReviews, bool OnlyOpen);
 }

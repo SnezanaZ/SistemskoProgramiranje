@@ -25,14 +25,15 @@ namespace Treci
 
         public IObservable<RestaurantBatch> PollRestaurantsPeriodically(
             string location,
-            TimeSpan interval)
+            TimeSpan interval,
+            FilterCriteria criteria = null)
         {
-            return Observable.Defer(() => BuildPollStream(location, interval))
+            return Observable.Defer(() => BuildPollStream(location, interval, criteria))
                 .Retry(); 
         }
 
 
-        private IObservable<RestaurantBatch> BuildPollStream(string location, TimeSpan interval)
+        private IObservable<RestaurantBatch> BuildPollStream(string location, TimeSpan interval, FilterCriteria criteria)
         {
             return Observable
                 .Timer(TimeSpan.Zero, interval, TaskPoolScheduler.Default)
@@ -80,8 +81,10 @@ namespace Treci
                 .Select(list =>
                 {
                     var filtered = list
-                        .Where(r => r.Rating > 4.0 && r.ReviewCount > 500 && !r.IsClosed)
-                        .ToList();
+                .Where(r => r.Rating > criteria.MinRating &&      // <- ovde
+                            r.ReviewCount > criteria.MinReviews && // <- ovde
+                            (!criteria.OnlyOpen || !r.IsClosed))   // <- ovde
+                .ToList();
 
                     Console.WriteLine(
                         $"[{DateTime.Now:HH:mm:ss}] RX FILTER | Location: {location} | " +

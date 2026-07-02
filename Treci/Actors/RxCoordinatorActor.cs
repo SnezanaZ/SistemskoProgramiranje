@@ -35,7 +35,7 @@ namespace Treci
                     $"Thread: {Thread.CurrentThread.ManagedThreadId}");
 
                 var subscription = _service
-                    .PollRestaurantsPeriodically(location, _pollInterval)
+                    .PollRestaurantsPeriodically(location, _pollInterval, new FilterCriteria(4.0, 500, true))
                     .Subscribe(
                         onNext: batch =>
                         {
