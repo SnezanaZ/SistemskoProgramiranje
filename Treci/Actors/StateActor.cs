@@ -1,113 +1,46 @@
 using System;
-using System.Collections.Generic;
-using System.Threading;
 using Akka.Actor;
+using Akka.Event;
 
 namespace Treci
 {
     public class StateActor : ReceiveActor
     {
-        private readonly Dictionary<string, List<Restaurant>> _cache = new();
-        private readonly Dictionary<string, DateTime> _lastUpdated = new();
-        private readonly Dictionary<IActorRef, string> _pendingSort = new();
-        private readonly Dictionary<string, List<IActorRef>> _waitingFor = new();
-        public StateActor()
-        {
-            Receive<RestaurantBatch>(batch =>
-            {
-                Console.WriteLine(
-                    $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Batch received | Location: {batch.Location} | Count: {batch.Restaurants.Count} | Thread: {Thread.CurrentThread.ManagedThreadId}");
+        private readonly ILoggingAdapter _log = Context.GetLogger();
+        private readonly TimeSpan _pollInterval;
 
-                var sortActor = Context.ActorOf(
-                    Props.Create(() => new SortActor())
+        public StateActor(TimeSpan pollInterval)
+        {
+            _pollInterval = pollInterval;
+
+            Receive<GetCachedData>(req => GetOrCreateChild(req.Location).Forward(req));
+        }
+
+        private IActorRef GetOrCreateChild(string location)
+        {
+            var childName = SanitizeName(location);
+            var child = Context.Child(childName);
+
+            if (child.IsNobody())
+            {
+                _log.Info($"[STATE ACTOR] Kreiranje LocationActor-a za: {location}");
+
+                child = Context.ActorOf(
+                    Props.Create(() => new LocationActor(location))
                          .WithDispatcher("yelp-dispatcher"),
-                    $"sort-{Guid.NewGuid():N}");
+                    childName);
 
-                _pendingSort[sortActor] = batch.Location;
-                Context.Watch(sortActor);
-                sortActor.Tell(new AggregatedData(batch.Restaurants), Self);
-            });
+                child.Tell(new StartPeriodicFetch(location, _pollInterval));
+            }
 
-            Receive<SortedData>(data =>
-{
-
-    if (!_pendingSort.Remove(Sender, out var location)) return;
-
-    if (!_cache.ContainsKey(location))
-        _cache[location] = new List<Restaurant>();
-
-    _cache[location] = _cache[location]
-        .Concat(data.Restaurants)
-        .GroupBy(r => r.Name)
-        .Select(g => g.OrderByDescending(x => x.Rating).First())
-        .OrderByDescending(r => r.PriceLevel)
-        .ThenByDescending(r => r.Rating)
-        .ToList();
-
-    _lastUpdated[location] = DateTime.Now;
-    if (_waitingFor.TryGetValue(location, out var waiters))
-    {
-        Console.WriteLine(
-            $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | " +
-            $"Notifying {waiters.Count} waiting senders for {location}");
-
-        foreach (var waiter in waiters)
-            waiter.Tell(new CachedDataResponse(
-                location, new List<Restaurant>(_cache[location]), true));
-
-        _waitingFor.Remove(location);
-    }
-    // Console.WriteLine(
-    //     $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Cache updated | " +
-    //     $"Location: {location} | Count: {_cache[location].Count}");
-});
-
-
-            Receive<Terminated>(t =>
-            {
-                if (_pendingSort.Remove(t.ActorRef, out var location))
-                {
-                    Console.WriteLine(
-                        $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | SortActor crashed | Location: {location} — cleaned up");
-                }
-            });
-
-            Receive<GetCachedData>(req =>
-            {
-                if (_cache.ContainsKey(req.Location))
-                {
-                    Sender.Tell(new CachedDataResponse(
-                        req.Location, new List<Restaurant>(_cache[req.Location]), true));
-                }
-                else
-                {
-                    if (!_waitingFor.ContainsKey(req.Location))
-                        _waitingFor[req.Location] = new List<IActorRef>();
-                    _waitingFor[req.Location].Add(Sender);
-
-                    Console.WriteLine(
-                        $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | " +
-                        $"Queued sender for {req.Location} | " +
-                        $"Waiting: {_waitingFor[req.Location].Count}");
-                }
-                // var isReady = _cache.ContainsKey(req.Location);
-                // var restaurants = isReady
-                //     ? new List<Restaurant>(_cache[req.Location])
-                //     : new List<Restaurant>();
-
-                // Console.WriteLine(
-                //     $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | GetCachedData | Location: {req.Location} | Ready: {isReady} | Count: {restaurants.Count}" +
-                //     (isReady ? $" | Updated: {_lastUpdated[req.Location]:HH:mm:ss}" : " | Not yet cached"));
-
-                // Sender.Tell(new CachedDataResponse(req.Location, restaurants, isReady));
-            });
+            return child;
         }
 
-        protected override void PostStop()
-        {
-            Console.WriteLine(
-                $"[{DateTime.Now:HH:mm:ss}] STATE ACTOR | Stopped | Cached: {string.Join(", ", _cache.Keys)}");
-            base.PostStop();
-        }
+        private static string SanitizeName(string location) =>
+            Uri.EscapeDataString(location).Replace("%", "-").ToLowerInvariant();
+
+        public static Props CreateProps(TimeSpan pollInterval) =>
+            Props.Create(() => new StateActor(pollInterval))
+                .WithDispatcher("yelp-dispatcher");
     }
 }

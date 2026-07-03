@@ -1,4 +1,3 @@
-// AppHost.cs
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,26 +11,14 @@ namespace Treci
         {
             var system = ActorSystem.Create("YelpSystem", SystemConfig.GetAkkaConfig());
 
-            var stateActor = system.ActorOf(
-                Props.Create(() => new StateActor()).WithDispatcher("yelp-dispatcher"),
-                "state");
-
             var pollInterval = TimeSpan.FromMinutes(2);
-            var rxCoordinator = system.ActorOf(
-                Props.Create(() => new RxCoordinatorActor(stateActor, pollInterval)).WithDispatcher("yelp-dispatcher"),
-                "rx-coordinator");
-            rxCoordinator.Tell(new StartPolling("Belgrade"));
+            var stateActor = system.ActorOf(StateActor.CreateProps(pollInterval), "state");
 
-            var manager = system.ActorOf(
-                Props.Create(() => new ManagerActor(stateActor, rxCoordinator)).WithDispatcher("yelp-dispatcher"),
-                "manager");
-
-            var server = new WebServer(manager);
+            var server = new WebServer(stateActor);
             server.Start();
 
             var cts = new CancellationTokenSource();
             RegisterShutdownHandlers(server, cts);
-
             await server.RunAsync(cts.Token);
 
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SERVER STOPPING...");
@@ -49,7 +36,6 @@ namespace Treci
                 cts.Cancel();
                 server.Stop();
             };
-
             _ = Task.Run(() =>
             {
                 while (!cts.Token.IsCancellationRequested)

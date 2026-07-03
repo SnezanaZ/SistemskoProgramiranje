@@ -28,7 +28,6 @@ namespace Treci
                     $"Top: {_lastSortedResults.FirstOrDefault()?.Name ?? "none"}");
 
                 Sender.Tell(new SortedData(new List<Restaurant>(_lastSortedResults)));
-
                 Context.Stop(Self);
             });
         }

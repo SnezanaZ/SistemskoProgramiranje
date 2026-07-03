@@ -1,4 +1,3 @@
-// WebServer.cs
 using System;
 using System.Net;
 using System.Text;
@@ -12,15 +11,17 @@ namespace Treci
     public class WebServer
     {
         private readonly HttpListener _listener = new();
-        private readonly IActorRef _manager;
+        private readonly IActorRef _stateActor;
         private readonly string _prefix;
+        private int _totalRequestsHandled = 0;
 
-        public WebServer(IActorRef manager, string prefix = "http://localhost:8080/restaurants/")
+        public WebServer(IActorRef stateActor, string prefix = "http://localhost:8080/restaurants/")
         {
-            _manager = manager;
+            _stateActor = stateActor;
             _prefix = prefix;
             _listener.Prefixes.Add(prefix);
         }
+
         public void Start()
         {
             _listener.Start();
@@ -33,7 +34,6 @@ namespace Treci
 
         public void Stop() => _listener.Stop();
         public void Close() => _listener.Close();
-
 
         public async Task RunAsync(CancellationToken token)
         {
@@ -73,9 +73,13 @@ namespace Treci
                     return;
                 }
 
+                var reqNum = Interlocked.Increment(ref _totalRequestsHandled);
+                Console.WriteLine(
+                    $"[{DateTime.Now:HH:mm:ss}] REQUEST [{requestId}] | Request #{reqNum} | Location: {location}");
+
                 var startTime = DateTime.Now;
-                var result = await _manager.Ask<CachedDataResponse>(
-                    new FetchRequest(location),
+                var result = await _stateActor.Ask<CachedDataResponse>(
+                    new GetCachedData(location),
                     TimeSpan.FromSeconds(15));
                 var elapsed = (DateTime.Now - startTime).TotalMilliseconds;
 
@@ -100,16 +104,6 @@ namespace Treci
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] SUCCESS [{requestId}] | Returned {result.Restaurants.Count} restaurants | Duration: {elapsed:F0}ms");
                 }
             }
-            // catch (Exception ex)
-            // {
-            //     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] ERROR [{requestId}] | {ex.GetType().Name}: {ex.Message}");
-            //     try
-            //     {
-            //         await WriteJson(ctx, HttpStatusCode.InternalServerError, new { error = ex.Message });
-            //     }
-            //     catch { }
-            // }
-
             catch (TaskCanceledException)
             {
                 Console.WriteLine(
